@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "tmc_driver.h"
+#include "ui/ui.h"
 #include "winder.h"
 
 namespace
@@ -45,6 +46,7 @@ namespace
             "  estop        immediate stop\n"
             "  status       settings and progress\n"
             "  drv          TMC2209 registers and status\n"
+            "  calibrate    touch screen calibration\n"
             "  help");
     }
 
@@ -107,6 +109,11 @@ namespace
         else if (!strcmp(cmd, "status"))
         {
             printStatus();
+        }
+        else if (!strcmp(cmd, "calibrate"))
+        {
+            ui::startCalibration();
+            Serial.println("touch calibration started on the screen");
         }
         else if (!strcmp(cmd, "drv"))
         {
@@ -259,15 +266,19 @@ void setup()
     Serial.println("\nPickup winder — step 1");
     winder::begin();
     tmc::begin();
+    ui::begin();
     printSettings();
     Serial.println("type 'help' for commands");
 }
 
 void loop()
 {
+    uint32_t t0 = micros();
+
     readSerial();
     watchDriver();
     printProgress();
+    ui::update();
 
     if (winder::update())
     {
@@ -278,4 +289,6 @@ void loop()
             Serial.println("driver disabled after fault — check hardware, then 'init'");
         }
     }
+
+    ui::noteLoopTime(micros() - t0);
 }

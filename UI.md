@@ -81,6 +81,10 @@ src/
 - Text is drawn **opaque** (foreground and background colour together), so numbers don't flicker.
 - **Fixed field boxes**: numbers are right-aligned in a box of fixed width, so the layout never shifts.
 - Loop budget: **5 ms or less per pass** for UI work. A debug stat measures it.
+- **Pixel budget (measured in UI-1):** at the library's 30 MHz SPI clock, the display fills about **1.9 Mpx/s**, so 5 ms is about **9,000 pixels** per pass.
+  - A full-screen clear (76,800 px) takes about 41 ms, which is fine only on a screen change.
+  - The first test screen cleared a 320×58 info area on every refresh, and the loop max came out at **12.3 ms**. Redrawing only the changed value boxes, one per pass, fixes this.
+  - This pixel budget is what UI-3 must be designed around.
 
 ### Touch handling
 - `T_IRQ` gives a quick "touched?" check; the coordinates are only read while touched.
@@ -234,6 +238,7 @@ Today `stop` ends the run. For RESUME:
 
 ## 9. Open questions
 
-- [ ] Screen orientation: which side should the module's pin header be on? (This sets the display rotation; touch calibration handles the rest.)
-- [ ] Pause behaviour: is "STOP → Paused, with RESUME / FINISH" right, or should STOP always end the run?
-- [ ] Wiring: exactly as in the table above?
+- [x] Screen orientation: landscape, **pin header on the left** (`DISPLAY_ROTATION` in `config.h`; touch calibration handles the touch axes)
+- [x] Pause behaviour: **STOP pauses the run** → Paused screen with RESUME / FINISH
+- [x] Wiring: matches the table above
+- [ ] Flicker-free numbers: the bundled `ILI9341_t3` draws font text without a background, so a changing number needs a clear + redraw. Decide in UI-3: accept the clear + redraw, render fields off-screen and blit with `writeRect`, or switch to `ILI9341_t3n` (opaque fonts, frame buffer).

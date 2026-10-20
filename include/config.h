@@ -17,6 +17,24 @@ constexpr uint8_t PIN_EN   = 4; // active LOW
 // pulses with an independent interrupt. Comment out to disable.
 // #define STEP_LOOPBACK_PIN 5
 
+// Display (ILI9341) + touch (HR2046 / XPT2046) on the shared SPI bus:
+// MOSI 11, MISO 12, SCK 13. Backlight LED and VCC to 3.3 V.
+constexpr uint8_t PIN_TFT_CS    = 10;
+constexpr uint8_t PIN_TFT_DC    = 9;
+constexpr uint8_t PIN_TFT_RST   = 8;
+constexpr uint8_t PIN_TOUCH_CS  = 14;
+constexpr uint8_t PIN_TOUCH_IRQ = 15;
+
+// Landscape with the module's pin header on the left. If the picture is
+// upside down, use 1 instead (and recalibrate touch).
+constexpr uint8_t DISPLAY_ROTATION = 3;
+
+// ---------------------------------------------------------------------------
+// EEPROM layout (Teensy 4.0: 1080 bytes)
+// ---------------------------------------------------------------------------
+constexpr int EEPROM_ADDR_TOUCH_CAL = 0;  // 64 bytes reserved
+constexpr int EEPROM_ADDR_SETTINGS  = 64; // settings (UI-2)
+
 // ---------------------------------------------------------------------------
 // TMC2209 driver
 // ---------------------------------------------------------------------------
