@@ -20,6 +20,12 @@ namespace winder
         uint32_t rpm;
         uint32_t accelRpmPerS;
         Dir dir;
+
+        bool operator==(const Settings& o) const
+        {
+            return turns == o.turns && rpm == o.rpm && accelRpmPerS == o.accelRpmPerS && dir == o.dir;
+        }
+        bool operator!=(const Settings& o) const { return !(*this == o); }
     };
 
     void begin();

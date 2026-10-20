@@ -1,5 +1,5 @@
 #include "ui/screens/calibrate.h"
-#include "ui/screens/touch_test.h"
+#include "ui/screens/idle.h"
 #include "ui/ui.h"
 #include "ui/widgets.h"
 
@@ -100,6 +100,6 @@ namespace ui::screens
 
     void Calibrate::update()
     {
-        if (doneMs && millis() - doneMs >= DONE_SHOW_MS) show(touchTest);
+        if (doneMs && millis() - doneMs >= DONE_SHOW_MS) show(idle);
     }
 }

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <ILI9341_t3.h>
-#include <font_Arial.h>
-#include <font_ArialBold.h>
+#include <ILI9341_t3n.h>
+#include <ili9341_t3n_font_Arial.h>
+#include <ili9341_t3n_font_ArialBold.h>
 
 namespace ui::theme
 {
@@ -21,13 +21,22 @@ namespace ui::theme
     constexpr uint16_t STATUS_BG  = rgb(30, 40, 60);
     constexpr uint16_t BUTTON     = rgb(50, 60, 80);
     constexpr uint16_t BUTTON_HI  = rgb(90, 110, 150);
+    constexpr uint16_t BUTTON_OFF = rgb(32, 34, 40);
+    constexpr uint16_t TEXT_OFF   = rgb(85, 85, 85);
+    constexpr uint16_t FIELD      = rgb(25, 30, 42);
+    constexpr uint16_t GO         = rgb(20, 140, 60);
     constexpr uint16_t OK         = rgb(40, 200, 80);
     constexpr uint16_t WARN       = rgb(255, 150, 0);
     constexpr uint16_t ERR        = rgb(230, 40, 40);
     constexpr uint16_t ACCENT     = rgb(0, 200, 230);
 
+    static const ILI9341_t3_font_t& FONT_SMALL  = Arial_11;
     static const ILI9341_t3_font_t& FONT_TITLE  = Arial_13_Bold;
     static const ILI9341_t3_font_t& FONT_BODY   = Arial_12;
+    static const ILI9341_t3_font_t& FONT_LABEL  = Arial_14;
+    static const ILI9341_t3_font_t& FONT_VALUE  = Arial_16_Bold;
     static const ILI9341_t3_font_t& FONT_BUTTON = Arial_16_Bold;
+    static const ILI9341_t3_font_t& FONT_ENTRY  = Arial_24_Bold;
+    static const ILI9341_t3_font_t& FONT_LARGE  = Arial_28_Bold;
     static const ILI9341_t3_font_t& FONT_BIG    = Arial_60_Bold;
 }

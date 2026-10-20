@@ -48,6 +48,8 @@ namespace ui::touch
         Event queue[4];
         uint8_t qHead = 0, qCount = 0;
 
+        bool (*busy)() = nullptr;
+
         uint32_t checksum(const CalData& d)
         {
             // FNV-1a over everything before `check`
@@ -88,8 +90,9 @@ namespace ui::touch
         }
     }
 
-    void begin()
+    void begin(bool (*busBusy)())
     {
+        busy = busBusy;
         ts.begin();
         loadCalibration();
     }
@@ -98,6 +101,7 @@ namespace ui::touch
     {
         uint32_t now = millis();
         if (now - lastSample < SAMPLE_MS) return;
+        if (busy && busy()) return; // retry next pass, once the bus is free
         lastSample = now;
 
         bool touched = ts.touched();
@@ -157,7 +161,7 @@ namespace ui::touch
     bool isPressed() { return pressed; }
     Point position() { return pos; }
     Raw lastRaw() { return latest; }
-    bool touchedNow() { return ts.touched(); }
+    bool touchedNow() { return (busy && busy()) ? pressed : ts.touched(); }
     bool calibrated() { return haveCal; }
 
     bool solveCalibration(const Raw raw[3], const Point screen[3])

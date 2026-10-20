@@ -23,7 +23,9 @@ namespace ui::touch
         Raw raw;   // Up: average of the firm samples of the whole press
     };
 
-    void begin();
+    // busBusy: returns true while another device (the display's DMA frame
+    // transfer) owns the shared SPI bus; touch is not sampled then.
+    void begin(bool (*busBusy)());
 
     // Call every loop pass; samples the panel at ~100 Hz.
     void update();

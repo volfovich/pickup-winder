@@ -2,7 +2,7 @@
 
 A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
 
-Status: **planned**, not implemented yet. Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+Status: **UI-1, UI-2 and UI-3 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad screens). Next: UI-4 (Running / Paused / Done / Fault + pause/resume). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -33,12 +33,12 @@ Status: **planned**, not implemented yet. Overall roadmap: [TBD.md](TBD.md). Cur
 
 > Check this against the real wiring during bring-up (UI-1). The test screen prints raw touch values, which shows quickly whether touch and display are both working.
 
-**Libraries:** all of these ship with Teensyduino, so no new `lib_deps` are needed:
-- `ILI9341_t3`, the Teensy-optimised display driver, with `font_Arial` / `font_ArialBold` in 8–96 pt;
-- `XPT2046_Touchscreen`, which works with the HR2046 (an XPT2046 clone);
-- `EEPROM`, for settings and touch calibration.
+**Libraries:**
+- `ILI9341_t3n` (KurtE, pinned in `platformio.ini`): display driver with a **frame buffer and DMA**, plus its own Arial / Arial Bold fonts in 8–96 pt. The bundled `ILI9341_t3` is excluded with `lib_ignore`, because its font files have the same names.
+- `XPT2046_Touchscreen` (bundled): works with the HR2046 (an XPT2046 clone).
+- `EEPROM` (bundled): settings and touch calibration.
 
-**SPI sharing:** the display runs at 30 MHz and touch at 2 MHz on the same bus. Both libraries use SPI transactions, so each device gets its own speed and they never overlap. The UART to the TMC2209 is a separate peripheral and is unaffected.
+**SPI sharing:** the display runs at 30 MHz and touch at 2 MHz on the same bus. **Touch is not sampled while a frame is being sent by DMA**: `touch::begin()` takes a "bus busy" check. The UART to the TMC2209 is a separate peripheral and is unaffected.
 
 ## 3. Safety without hardware buttons
 
@@ -72,19 +72,20 @@ src/
 - It holds the **settings struct**: turns, rpm, accel, direction, and later wire Ø, bobbin width and start offset. Settings are **saved in EEPROM** with a version number and checksum. If the data is invalid, it falls back to the defaults in `config.h`.
 - **Actions:** `setTurns`, `setRpm`, `setAccel`, `setDir`, `start`, `stop`, `resume`, `finish`, `reinitDriver`, `release`.
 - Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 10..1500"` or `"accel 327..423 not supported"`. Serial prints that text and the UI shows it.
-- Today the validators print to Serial (`winder::rpmSupported` / `accelSupported` in `src/winder.cpp`). They change to return the text instead.
 - The serial console's behaviour doesn't change.
 
-### Rendering rules
-- **Full-screen draw only when the screen changes.**
-- While running, **redraw only the fields that changed, at 10 Hz**: counter, RPM, progress bar and times.
-- Text is drawn **opaque** (foreground and background colour together), so numbers don't flicker.
+### Rendering (decided in UI-3: frame buffer + DMA)
+- **All drawing goes into a RAM frame buffer** (320×240×2 = 150 KB, allocated from RAM2 at boot). This takes microseconds, and nothing half-drawn is ever visible, so there's **no flicker**.
+- **`ui::tft()` marks the frame dirty.** The screen manager sends a dirty frame to the display by **async DMA**, at most **10 frames/s**.
+  - A full transfer takes about 41 ms at 30 MHz SPI, so 10 fps leaves the bus free for touch about 60% of the time.
+  - A screen change is just a RAM clear plus redraw (about 1 ms).
+- **Still redraw only what changed:** it keeps frames rare, so the bus stays free for touch.
 - **Fixed field boxes**: numbers are right-aligned in a box of fixed width, so the layout never shifts.
-- Loop budget: **5 ms or less per pass** for UI work. A debug stat measures it.
-- **Pixel budget (measured in UI-1):** at the library's 30 MHz SPI clock, the display fills about **1.9 Mpx/s**, so 5 ms is about **9,000 pixels** per pass.
-  - A full-screen clear (76,800 px) takes about 41 ms, which is fine only on a screen change.
-  - The first test screen cleared a 320×58 info area on every refresh, and the loop max came out at **12.3 ms**. Redrawing only the changed value boxes, one per pass, fixes this.
-  - This pixel budget is what UI-3 must be designed around.
+- Loop budget: **5 ms or less per pass** for UI work, measured on the touch test screen.
+- **Measured:**
+  - UI-1, drawing directly to the display: 12.3 ms, then 2.3 ms after redrawing only the changed boxes.
+  - UI-3, frame buffer: **0.4 ms**.
+- Why the frame buffer: at 30 MHz the display fills only about 1.9 Mpx/s, so 5 ms is about 9,000 pixels. A 60 pt turn counter alone is about 10,000 pixels, so direct drawing would have flickered and broken the budget.
 
 ### Touch handling
 - `T_IRQ` gives a quick "touched?" check; the coordinates are only read while touched.
@@ -241,4 +242,4 @@ Today `stop` ends the run. For RESUME:
 - [x] Screen orientation: landscape, **pin header on the left** (`DISPLAY_ROTATION` in `config.h`; touch calibration handles the touch axes)
 - [x] Pause behaviour: **STOP pauses the run** → Paused screen with RESUME / FINISH
 - [x] Wiring: matches the table above
-- [ ] Flicker-free numbers: the bundled `ILI9341_t3` draws font text without a background, so a changing number needs a clear + redraw. Decide in UI-3: accept the clear + redraw, render fields off-screen and blit with `writeRect`, or switch to `ILI9341_t3n` (opaque fonts, frame buffer).
+- [x] Flicker-free numbers: decided in UI-3 — `ILI9341_t3n` frame buffer + async DMA (see §4 Rendering)

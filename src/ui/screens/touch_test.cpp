@@ -1,6 +1,6 @@
 #include "ui/screens/touch_test.h"
+#include "ui/screens/setup.h"
 #include "ui/ui.h"
-#include "ui/widgets.h"
 
 namespace ui::screens
 {
@@ -12,9 +12,7 @@ namespace ui::screens
         constexpr int16_t AREA_BOTTOM = 184;
 
         // Info lines: labels drawn once, values redrawn one line per pass and
-        // only when they change. At 30 MHz SPI the display fills ~1.9 Mpx/s,
-        // so each value box (~3,800 px) costs ~2 ms instead of ~10 ms for
-        // clearing the whole info area.
+        // only when they change.
         constexpr uint32_t INFO_LINE_MS = 70; // all 3 lines refresh at ~5 Hz
         constexpr int16_t INFO_Y        = 34;
         constexpr int16_t INFO_DY       = 18;
@@ -23,19 +21,16 @@ namespace ui::screens
 
         // Accuracy markers: taps on these should land on them
         constexpr touch::Point MARKERS[] = {{20, 100}, {300, 100}, {160, 138}, {20, 176}, {300, 176}};
+    }
 
-        enum : int8_t { BTN_CLEAR, BTN_CALIBRATE, BTN_COUNT };
-        const Button BUTTONS[BTN_COUNT] = {
-            {8, 192, 120, 42, "CLEAR"},
-            {176, 192, 136, 42, "CALIBRATE"},
-        };
-
-        int8_t buttonAt(touch::Point p)
-        {
-            for (int8_t i = 0; i < BTN_COUNT; i++)
-                if (BUTTONS[i].contains(p)) return i;
-            return -1;
-        }
+    TouchTest::TouchTest()
+        : buttons{
+              {8, 192, 96, 42, "CLEAR"},
+              {110, 192, 116, 42, "CALIBRATE"},
+              {232, 192, 80, 42, "BACK"},
+          },
+          group(buttons, BTN_COUNT)
+    {
     }
 
     void TouchTest::enter()
@@ -48,19 +43,16 @@ namespace ui::screens
             d.drawFastHLine(m.x - 5, m.y, 11, theme::MUTED);
             d.drawFastVLine(m.x, m.y - 5, 11, theme::MUTED);
         }
-        for (auto& b : BUTTONS) b.draw();
+        group.reset();
+        group.drawAll();
 
-        d.setFont(theme::FONT_BODY);
-        d.setTextColor(theme::MUTED);
         for (uint8_t i = 0; i < INFO_LINES; i++)
         {
-            d.setCursor(8, INFO_Y + i * INFO_DY);
-            d.print(INFO_LABELS[i]);
+            printAt(INFO_LABELS[i], 8, INFO_Y + i * INFO_DY, theme::FONT_BODY, theme::MUTED);
             shown[i][0] = '\0';
         }
 
         lastDot    = {-1, -1};
-        downButton = -1;
         lastInfoMs = 0;
         nextLine   = 0;
     }
@@ -88,18 +80,14 @@ namespace ui::screens
         if (!strcmp(text, shown[i])) return;
         strcpy(shown[i], text);
 
-        auto& d = tft();
         int16_t y = INFO_Y + i * INFO_DY;
-        d.fillRect(VALUE_X, y - 2, theme::W - VALUE_X - 4, INFO_DY - 1, theme::BG);
-        d.setFont(theme::FONT_BODY);
-        d.setTextColor(color);
-        d.setCursor(VALUE_X, y);
-        d.print(text);
+        tft().fillRect(VALUE_X, y - 2, theme::W - VALUE_X - 4, INFO_DY - 1, theme::BG);
+        printAt(text, VALUE_X, y, theme::FONT_BODY, color);
     }
 
     void TouchTest::update()
     {
-        if (touch::isPressed() && downButton < 0)
+        if (touch::isPressed() && group.pressed() < 0)
         {
             touch::Point p = touch::position();
             bool moved     = abs(p.x - lastDot.x) > 1 || abs(p.y - lastDot.y) > 1;
@@ -120,19 +108,12 @@ namespace ui::screens
 
     void TouchTest::onTouch(const touch::Event& e)
     {
-        if (e.type == touch::Type::Down)
+        switch (group.handle(e))
         {
-            downButton = buttonAt(e.pos);
-            if (downButton >= 0) BUTTONS[downButton].draw(true);
-        }
-        else if (e.type == touch::Type::Up && downButton >= 0)
-        {
-            int8_t b   = downButton;
-            downButton = -1;
-            BUTTONS[b].draw();
-            if (buttonAt(e.pos) != b) return; // slid off the button: cancel
-            if (b == BTN_CLEAR) show(*this);
-            else if (b == BTN_CALIBRATE) startCalibration();
+            case BTN_CLEAR: show(*this); break;
+            case BTN_CALIBRATE: startCalibration(); break;
+            case BTN_BACK: show(setup); break;
+            default: break;
         }
     }
 }
