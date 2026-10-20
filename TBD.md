@@ -32,32 +32,11 @@ Step 1 pins unchanged: 0/1 UART, 2 spindle STEP, 3 spindle DIR, 4 spindle EN (5 
 | TFT CS / DC / RST | 10 / 9 / 8 |
 | Touch T_CS / T_IRQ | 14 / 15 |
 | SD card CS *(reserved — presets/logs later)* | 16 |
-| START/PAUSE / STOP buttons | 18 / 19 |
-| E-STOP sense | 20 |
 | TFT LED (backlight) | **3.3 V directly** — it can draw 50–100 mA, too much for a Teensy pin (dimming would need a transistor) |
 
-Display module power: VCC from the Teensy's 3.3 V; logic is 3.3 V, so no level shifting.
+Free: 17, 18, 19, 20, 23 (no hardware buttons — the UI is touch only).
 
-### Display wiring (in the module's pin order)
-
-| Module pin | Teensy pin | Notes |
-|---|---|---|
-| T_IRQ | 15 | touch interrupt (low while touched) |
-| T_OUT | 12 (MISO) | touch data out — shared SPI |
-| T_DIN | 11 (MOSI) | touch data in — shared SPI |
-| T_CS | 14 | touch chip select |
-| T_CLK | 13 (SCK) | shared SPI clock |
-| SDO (MISO) | 12 | display data out |
-| LED | 3.3 V | backlight, direct |
-| SCK | 13 | SPI clock |
-| SDI (MOSI) | 11 | SPI data |
-| D/C | 9 | data / command |
-| RESET | 8 | |
-| CS | 10 | display chip select |
-| GND | GND | |
-| VCC | 3.3 V | |
-
-The SD card socket has its own pins on the other side of the module (SD_CS → 16 when used, SD_MOSI / SD_MISO / SD_SCK → 11 / 12 / 13).
+The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hardware-and-wiring). The SD card socket has its own pins on the other side of the module (SD_CS → 16 when used, SD_MOSI / SD_MISO / SD_SCK → 11 / 12 / 13).
 
 ## Phase B — Traverse firmware (testable over serial)
 
@@ -86,7 +65,7 @@ Why this design:
 - [ ] `src/traverse.*` — follower interrupt; ramped moves for homing, jog and go-to-start; soft limits 0–50 mm; layer/position readout
 - [ ] `src/tmc_driver.*` — refactor for two drivers: address 0 spindle (spreadCycle, 1500 mA), address 1 traverse (stealthChop, 400 mA); same verification and fault watch for both
 - [ ] `src/machine.*` — one state machine (Idle → Homing → Positioning → Winding → Paused / Done / Fault) and one command API shared by serial and the UI
-- [ ] Pause / resume — pause is a ramped stop; resume continues the remaining turns; the total count stays exact across pauses
+- [ ] Pause / resume — pause is a ramped stop; resume continues the remaining turns; the total count stays exact across pauses (also needed by the UI — see [UI.md §6](UI.md#6-firmware-change-needed-pause--resume))
 - [ ] Settings saved in EEPROM — turns, RPM, accel, direction, wire diameter, bobbin width, start offset, traverse start direction
 - [ ] Serial commands — `home`, `jog ±mm`, `goto mm`, `wire 0.071`, `width 12.5`, `start-offset 3.2`, `pause`, `resume`
 
@@ -99,28 +78,12 @@ Why this design:
 
 ## Phase C — Touch front panel UI
 
-### Hardware
+**Full plan: [UI.md](UI.md).** In short:
 
-- **On hand:** 2.8" ILI9341 SPI TFT with **HR2046 resistive touch** (an XPT2046-compatible clone — same protocol and library) and SD card socket.
-- **To buy:**
-  - [ ] Two large arcade buttons — START/PAUSE (green), STOP (red)
-  - [ ] Mushroom **E-stop** that pulls both drivers' EN pins high **in hardware**, plus a sense wire to pin 20 so the firmware knows
-
-Physical buttons stay even with a touch screen: you can pause or stop with wire in hand without aiming at the screen, and **stopping must never rely on touch alone**. A rotary encoder is no longer needed (optional).
-
-### Software
-
-- Libraries: `ILI9341_t3n` (Teensy-optimised, frame buffer, no flicker) and `XPT2046_Touchscreen` (PJRC, ships with Teensyduino).
-- **Touch calibration screen**, stored in EEPROM — resistive panels need a one-time calibration.
-- Large touch targets; numbers entered with an on-screen numeric keypad.
-- Drawing happens in the main loop; both motors are stepped by timer interrupts, so the display can't disturb stepping or the count.
-
-### Screens
-
-- **Run** — huge turn counter, target, actual RPM, layer n/N, carriage position bar, progress bar
-- **Setup** — turns, RPM, accel, direction, wire, width, start offset (keypad entry)
-- **Jog / Home** — touch jog buttons (±0.1 / 1 / 10 mm) to set the bobbin start position by eye
-- **Presets** *(later)* — saved recipes, e.g. "Strat neck – 42AWG – 8000T" (could live on the SD card)
+- **Hardware (on hand, wired):** 2.8" ILI9341 SPI TFT with **HR2046 resistive touch** (XPT2046-compatible) and SD card socket. **No hardware buttons** — touch only; the 24 V power switch is the emergency off.
+- **Libraries (bundled with Teensyduino):** `ILI9341_t3`, `XPT2046_Touchscreen`, `EEPROM`.
+- **Screens:** Idle, Setup, Keypad, Running (huge counter + huge STOP), Paused (RESUME / FINISH), Done, Fault, Driver, Touch calibration; after Phase B: Bobbin, Jog / Home; later: Presets.
+- **Phases UI-1 … UI-7** — from display bring-up to presets; UI-1 to UI-5 don't need the traverse.
 
 ## Later / ideas
 
