@@ -24,18 +24,19 @@ namespace winder
 
     void begin();
 
-    // Checks rpm/accel against what TeensyStep4's timer can produce. Prints
-    // the reason and returns false if not supported.
-    bool rpmSupported(uint32_t rpm);
-    bool accelSupported(uint32_t accelRpmPerS);
+    // Validate a setting: nullptr if OK, else a short reason (also covers
+    // what TeensyStep4's timer can't produce).
+    const char* checkTurns(uint32_t turns);
+    const char* checkRpm(uint32_t rpm);
+    const char* checkAccel(uint32_t accelRpmPerS);
 
     // The cruise speed the step timer really produces for a set rpm. The
     // timer has a 0.213 us resolution, so e.g. 1200 rpm runs at 1204.0 rpm.
     float actualRpm(uint32_t rpm);
 
     // Starts a run. All parameters are fixed for the duration of the run.
-    // Prints the reason and returns false if the run can't start.
-    bool start(const Settings& s);
+    // Returns nullptr on success, else the reason the run can't start.
+    const char* start(const Settings& s);
 
     void stop();                    // ramped stop, count stays exact
     void estop();                   // stop at the next step edge, no ramp

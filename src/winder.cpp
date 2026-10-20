@@ -93,27 +93,33 @@ namespace winder
         return TS4_TICK_HZ / ticks * 60.0 / STEPS_PER_REV;
     }
 
-    bool rpmSupported(uint32_t rpm)
+    const char* checkTurns(uint32_t turns)
     {
-        if (rpm >= MIN_RPM && rpm <= MAX_RPM) return true;
-        Serial.printf("ERR: rpm must be %lu..%lu\n", MIN_RPM, MAX_RPM);
-        return false;
+        static char msg[32];
+        if (turns >= 1 && turns <= MAX_TURNS) return nullptr;
+        snprintf(msg, sizeof(msg), "turns must be 1..%lu", MAX_TURNS);
+        return msg;
     }
 
-    bool accelSupported(uint32_t accelRpmPerS)
+    const char* checkRpm(uint32_t rpm)
     {
+        static char msg[32];
+        if (rpm >= MIN_RPM && rpm <= MAX_RPM) return nullptr;
+        snprintf(msg, sizeof(msg), "rpm must be %lu..%lu", MIN_RPM, MAX_RPM);
+        return msg;
+    }
+
+    const char* checkAccel(uint32_t accelRpmPerS)
+    {
+        static char msg[40];
         if (accelRpmPerS < MIN_ACCEL_RPM_PER_S || accelRpmPerS > MAX_ACCEL_RPM_PER_S)
         {
-            Serial.printf("ERR: accel must be %lu..%lu RPM/s\n", MIN_ACCEL_RPM_PER_S, MAX_ACCEL_RPM_PER_S);
-            return false;
+            snprintf(msg, sizeof(msg), "accel must be %lu..%lu RPM/s", MIN_ACCEL_RPM_PER_S, MAX_ACCEL_RPM_PER_S);
+            return msg;
         }
         int32_t endVSqr = TS4_START_V_SQR - 2 * (int32_t)rpmToStepsPerS(accelRpmPerS);
-        if (abs(endVSqr) < TS4_MIN_V_SQR)
-        {
-            Serial.println("ERR: accel 327..423 RPM/s is not supported by the step timer — use a value outside that range");
-            return false;
-        }
-        return true;
+        if (abs(endVSqr) < TS4_MIN_V_SQR) return "accel 327..423 RPM/s is not supported by the step timer";
+        return nullptr;
     }
 
     void begin()
@@ -133,24 +139,13 @@ namespace winder
 #endif
     }
 
-    bool start(const Settings& st)
+    const char* start(const Settings& st)
     {
-        if (running || motor.moving())
-        {
-            Serial.println("ERR: already running");
-            return false;
-        }
-        if (!tmc::ready())
-        {
-            Serial.println("ERR: driver not configured — fix the TMC2209 connection and run 'init'");
-            return false;
-        }
-        if (st.turns < 1 || st.turns > MAX_TURNS)
-        {
-            Serial.printf("ERR: turns must be 1..%lu\n", MAX_TURNS);
-            return false;
-        }
-        if (!rpmSupported(st.rpm) || !accelSupported(st.accelRpmPerS)) return false;
+        if (running || motor.moving()) return "already running";
+        if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
+        if (const char* err = checkTurns(st.turns)) return err;
+        if (const char* err = checkRpm(st.rpm)) return err;
+        if (const char* err = checkAccel(st.accelRpmPerS)) return err;
 
         target         = st.turns * STEPS_PER_REV;
         stopRequested  = false;
@@ -171,7 +166,7 @@ namespace winder
         running    = true;
         runStartMs = millis();
         motor.moveRelAsync((int32_t)st.dir * (int32_t)target);
-        return true;
+        return nullptr;
     }
 
     void stop()

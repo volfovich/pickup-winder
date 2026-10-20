@@ -1,13 +1,15 @@
 #include <Arduino.h>
+#include "app.h"
 #include "config.h"
 #include "tmc_driver.h"
 #include "ui/ui.h"
 #include "winder.h"
 
+// USB serial console. All settings and actions go through app::, the same
+// layer the touch UI uses.
+
 namespace
 {
-    winder::Settings settings{DEFAULT_TURNS, DEFAULT_RPM, DEFAULT_ACCEL_RPM_PER_S, winder::Dir::CW};
-
     char line[64];
     size_t lineLen = 0;
 
@@ -22,12 +24,8 @@ namespace
     Sample samples[RPM_WINDOW + 1];
     uint8_t sampleCount = 0;
 
-    uint32_t lastProgressMs  = 0;
-    uint32_t lastPollMs      = 0;
-    uint8_t commFailures     = 0;
-    bool otWarned            = false;
-
-    constexpr uint8_t COMM_FAILURES_TO_ABORT = 3;
+    uint32_t lastProgressMs = 0;
+    bool wasRunning         = false;
 
     void printHelp()
     {
@@ -47,15 +45,17 @@ namespace
             "  status       settings and progress\n"
             "  drv          TMC2209 registers and status\n"
             "  calibrate    touch screen calibration\n"
-            "  help");
+            "  help\n"
+            "Settings are saved and restored at power-up.");
     }
 
     void printSettings()
     {
-        uint32_t accelSec = (settings.rpm * 10 + settings.accelRpmPerS / 2) / settings.accelRpmPerS;
-        Serial.printf("turns %lu  rpm %lu (actual %.1f)  accel %lu RPM/s (0->max in %lu.%lu s)  dir %s\n",
-                      settings.turns, settings.rpm, winder::actualRpm(settings.rpm), settings.accelRpmPerS,
-                      accelSec / 10, accelSec % 10, settings.dir == winder::Dir::CW ? "cw" : "ccw");
+        const winder::Settings& s = app::settings();
+        uint32_t accelSec         = (s.rpm * 10 + s.accelRpmPerS / 2) / s.accelRpmPerS;
+        Serial.printf("turns %lu  rpm %lu (actual %.1f)  accel %lu RPM/s (0->max in %lu.%lu s)  dir %s\n", s.turns,
+                      s.rpm, winder::actualRpm(s.rpm), s.accelRpmPerS, accelSec / 10, accelSec % 10,
+                      s.dir == winder::Dir::CW ? "cw" : "ccw");
     }
 
     void printStatus()
@@ -80,11 +80,20 @@ namespace
         return true;
     }
 
-    bool rejectWhileRunning()
+    // Prints an action's error, if any. Returns true on success.
+    bool report(const char* err)
     {
-        if (!winder::isRunning()) return false;
-        Serial.println("ERR: not allowed while winding — use 'stop' or 'estop' first");
-        return true;
+        if (err) Serial.printf("ERR: %s\n", err);
+        return !err;
+    }
+
+    // Runs a setter with the parsed number (0 if it didn't parse, which every
+    // setter rejects with its range), then shows the settings.
+    void setNumber(const char* (*setter)(uint32_t), const char* arg)
+    {
+        uint32_t v;
+        if (!parseUint(arg, v)) v = 0;
+        if (report(setter(v)) || !winder::isRunning()) printSettings();
     }
 
     void handleCommand(char* cmd)
@@ -95,96 +104,47 @@ namespace
             *arg++ = '\0';
             while (*arg == ' ') arg++;
         }
-        uint32_t v;
 
         if (!strcmp(cmd, "stop"))
         {
             if (winder::isRunning()) Serial.println("stopping (ramp down)...");
-            winder::stop();
+            app::stop();
         }
-        else if (!strcmp(cmd, "estop"))
-        {
-            winder::estop();
-        }
-        else if (!strcmp(cmd, "status"))
-        {
-            printStatus();
-        }
+        else if (!strcmp(cmd, "estop")) app::estop();
+        else if (!strcmp(cmd, "status")) printStatus();
+        else if (!strcmp(cmd, "drv")) tmc::printStatus();
+        else if (!strcmp(cmd, "help")) printHelp();
         else if (!strcmp(cmd, "calibrate"))
         {
             ui::startCalibration();
             Serial.println("touch calibration started on the screen");
         }
-        else if (!strcmp(cmd, "drv"))
-        {
-            tmc::printStatus();
-        }
-        else if (!strcmp(cmd, "help"))
-        {
-            printHelp();
-        }
-        else if (!strcmp(cmd, "turns"))
-        {
-            if (rejectWhileRunning()) return;
-            if (!parseUint(arg, v) || v < 1 || v > MAX_TURNS)
-                Serial.printf("ERR: turns must be 1..%lu\n", MAX_TURNS);
-            else
-                settings.turns = v;
-            printSettings();
-        }
-        else if (!strcmp(cmd, "rpm"))
-        {
-            if (rejectWhileRunning()) return;
-            if (!parseUint(arg, v)) v = 0;
-            if (winder::rpmSupported(v)) settings.rpm = v;
-            printSettings();
-        }
-        else if (!strcmp(cmd, "accel"))
-        {
-            if (rejectWhileRunning()) return;
-            if (!parseUint(arg, v)) v = 0;
-            if (winder::accelSupported(v)) settings.accelRpmPerS = v;
-            printSettings();
-        }
+        else if (!strcmp(cmd, "turns")) setNumber(app::setTurns, arg);
+        else if (!strcmp(cmd, "rpm")) setNumber(app::setRpm, arg);
+        else if (!strcmp(cmd, "accel")) setNumber(app::setAccel, arg);
         else if (!strcmp(cmd, "dir"))
         {
-            if (rejectWhileRunning()) return;
-            if (arg && !strcmp(arg, "cw")) settings.dir = winder::Dir::CW;
-            else if (arg && !strcmp(arg, "ccw")) settings.dir = winder::Dir::CCW;
+            if (arg && !strcmp(arg, "cw")) report(app::setDir(winder::Dir::CW));
+            else if (arg && !strcmp(arg, "ccw")) report(app::setDir(winder::Dir::CCW));
             else Serial.println("ERR: dir cw|ccw");
             printSettings();
         }
         else if (!strcmp(cmd, "start"))
         {
-            if (rejectWhileRunning()) return;
-            printSettings();
-            if (winder::start(settings))
+            if (winder::isRunning())
             {
-                Serial.println("winding...");
-                Serial.printf("step timer runs %lu rpm as %.2f rpm\n", settings.rpm, winder::actualRpm(settings.rpm));
-                lastProgressMs = millis();
-                samples[0]     = {0, micros()};
-                sampleCount    = 1;
-                lastPollMs     = millis();
-                commFailures    = 0;
-                otWarned        = false;
+                report("already running");
+                return;
             }
+            printSettings();
+            report(app::start()); // progress output starts in printProgress()
         }
         else if (!strcmp(cmd, "release"))
         {
-            if (rejectWhileRunning()) return;
-            winder::enableDriver(false);
-            Serial.println("driver disabled");
+            if (report(app::release())) Serial.println("driver disabled");
         }
-        else if (!strcmp(cmd, "init"))
-        {
-            if (rejectWhileRunning()) return;
-            tmc::begin();
-        }
-        else if (*cmd)
-        {
-            Serial.printf("ERR: unknown command '%s' (try 'help')\n", cmd);
-        }
+        else if (!strcmp(cmd, "init")) report(app::reinitDriver());
+        else if (*cmd) Serial.printf("ERR: unknown command '%s' (try 'help')\n", cmd);
     }
 
     void readSerial()
@@ -206,40 +166,22 @@ namespace
         }
     }
 
-    // Polls the driver while winding; aborts the run on a fault that makes
-    // the step count unreliable.
-    void watchDriver()
-    {
-        if (!winder::isRunning() || millis() - lastPollMs < FAULT_POLL_MS) return;
-        lastPollMs = millis();
-
-        bool otpw        = false;
-        tmc::Fault fault = tmc::poll(&otpw);
-
-        if (fault == tmc::Fault::NoComm)
-        {
-            if (++commFailures < COMM_FAILURES_TO_ABORT) return; // ride out a single noisy read
-        }
-        else
-        {
-            commFailures = 0;
-        }
-
-        if (fault != tmc::Fault::None)
-        {
-            winder::abortOnFault(tmc::faultName(fault));
-            return;
-        }
-        if (otpw && !otWarned)
-        {
-            otWarned = true;
-            Serial.println("WARNING: driver over-temperature pre-warning (otpw)");
-        }
-    }
-
+    // Progress lines for any run, whether started from serial or the screen.
     void printProgress()
     {
-        if (!winder::isRunning() || millis() - lastProgressMs < PROGRESS_INTERVAL_MS) return;
+        bool running = winder::isRunning();
+        if (running && !wasRunning)
+        {
+            const winder::Settings& s = app::settings();
+            Serial.println("winding...");
+            Serial.printf("step timer runs %lu rpm as %.2f rpm\n", s.rpm, winder::actualRpm(s.rpm));
+            lastProgressMs = millis();
+            samples[0]     = {0, micros()};
+            sampleCount    = 1;
+        }
+        wasRunning = running;
+
+        if (!running || millis() - lastProgressMs < PROGRESS_INTERVAL_MS) return;
         lastProgressMs = millis();
 
         Sample now{winder::stepsDone(), micros()};
@@ -263,7 +205,8 @@ void setup()
     uint32_t t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
 
-    Serial.println("\nPickup winder — step 1");
+    Serial.println("\nPickup winder");
+    app::begin();
     winder::begin();
     tmc::begin();
     ui::begin();
@@ -276,19 +219,14 @@ void loop()
     uint32_t t0 = micros();
 
     readSerial();
-    watchDriver();
-    printProgress();
-    ui::update();
-
-    if (winder::update())
+    if (app::update())
     {
         winder::printSummary();
         if (winder::lastOutcome() == winder::Outcome::Faulted)
-        {
-            winder::enableDriver(false);
             Serial.println("driver disabled after fault — check hardware, then 'init'");
-        }
     }
+    printProgress();
+    ui::update();
 
     ui::noteLoopTime(micros() - t0);
 }
