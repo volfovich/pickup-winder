@@ -16,6 +16,12 @@ namespace tmc
             if (!ok) Serial.printf("TMC2209: verify FAILED: %s\n", what);
             return ok;
         }
+
+        // RMS current for a current scale (CS 0..31), as TMCStepper computes it
+        uint16_t csToMa(uint8_t cs, bool vsense)
+        {
+            return (cs + 1) / 32.0f * (vsense ? 0.180f : 0.325f) / (R_SENSE + 0.02f) / 1.41421f * 1000;
+        }
     }
 
     bool begin()
@@ -128,31 +134,103 @@ namespace tmc
         return "?";
     }
 
+    bool readStatus(Status* s, uint8_t part)
+    {
+        switch (part)
+        {
+            case 0:
+            {
+                TMC2209_n::IOIN_t r{0};
+                r.sr = s->ioin = driver.IOIN();
+                s->version     = r.version;
+                s->enPinOff    = r.enn;
+                break;
+            }
+            case 1:
+            {
+                TMC2208_n::GCONF_t r{0};
+                r.sr = s->gconf = driver.GCONF();
+                s->spreadCycle  = r.en_spreadcycle;
+                s->pdnDisable   = r.pdn_disable;
+                s->mstepReg     = r.mstep_reg_select;
+                s->iScaleAnalog = r.i_scale_analog;
+                break;
+            }
+            case 2:
+            {
+                TMC2208_n::CHOPCONF_t r{0};
+                r.sr = s->chopconf = driver.CHOPCONF();
+                s->microsteps      = 256 >> r.mres;
+                s->intpol          = r.intpol;
+                s->dedge           = r.dedge;
+                s->toff            = r.toff;
+                s->hstrt           = r.hstrt;
+                s->hend            = r.hend;
+                s->tblClocks       = 16 + 8 * r.tbl;
+                s->runMa           = csToMa(driver.irun(), r.vsense);
+                s->holdMa          = csToMa(driver.ihold(), r.vsense);
+                break;
+            }
+            case 3:
+            {
+                TMC2208_n::DRV_STATUS_t r{0};
+                r.sr = s->drvStatus = driver.DRV_STATUS();
+                TMC2208_n::CHOPCONF_t c{0};
+                c.sr          = s->chopconf; // part 2 comes first
+                s->csActual   = r.cs_actual;
+                s->currentMa  = csToMa(r.cs_actual, c.vsense);
+                s->standstill = r.stst;
+                s->otpw       = r.otpw;
+                s->ot         = r.ot;
+                s->s2ga       = r.s2ga;
+                s->s2gb       = r.s2gb;
+                s->s2vsa      = r.s2vsa;
+                s->s2vsb      = r.s2vsb;
+                s->ola        = r.ola;
+                s->olb        = r.olb;
+                s->tempOver   = r.t157 ? 157 : r.t150 ? 150 : r.t143 ? 143 : r.t120 ? 120 : 0;
+                break;
+            }
+            case 4:
+            {
+                GSTAT_t r{0};
+                r.sr = s->gstat = driver.GSTAT();
+                s->reset        = r.reset;
+                s->drvErr       = r.drv_err;
+                s->uvCp         = r.uv_cp;
+                break;
+            }
+            case 5: s->mscnt = driver.MSCNT() & 0x3FF; break;
+            default: return false;
+        }
+        return !driver.CRCerror;
+    }
+
     void printStatus()
     {
-        uint8_t ver = driver.version();
-        if (driver.CRCerror)
+        Status s{};
+        for (uint8_t part = 0; part < STATUS_READS; part++)
         {
-            Serial.println("TMC2209: no response (check 24V motor power and UART wiring)");
-            return;
+            if (!readStatus(&s, part))
+            {
+                Serial.println("TMC2209: no response (check 24V motor power and UART wiring)");
+                return;
+            }
         }
-        uint32_t gconf    = driver.GCONF();
-        uint32_t chopconf = driver.CHOPCONF();
-        uint32_t drv      = driver.DRV_STATUS();
-        TMC2208_n::DRV_STATUS_t st{0};
-        st.sr = drv;
 
-        Serial.printf("TMC2209 version 0x%02X  configured=%s\n", ver, configured ? "yes" : "NO");
-        Serial.printf("  GCONF    0x%08lX  spreadCycle=%d pdn_disable=%d mstep_reg=%d I_scale_analog=%d\n",
-                      gconf, driver.en_spreadCycle(), driver.pdn_disable(), driver.mstep_reg_select(), driver.I_scale_analog());
-        Serial.printf("  CHOPCONF 0x%08lX  microsteps=%u intpol=%d dedge=%d toff=%u hstrt=%u hend=%u\n",
-                      chopconf, driver.microsteps(), driver.intpol(), driver.dedge(), driver.toff(), driver.hstrt(), driver.hend());
-        Serial.printf("  current  %u mA RMS (set)  cs_actual=%u\n", driver.rms_current(), (unsigned)st.cs_actual);
+        Serial.printf("TMC2209 version 0x%02X  configured=%s  EN pin %s\n", s.version, configured ? "yes" : "NO",
+                      s.enPinOff ? "off (motor free)" : "on");
+        Serial.printf("  GCONF    0x%08lX  spreadCycle=%d pdn_disable=%d mstep_reg=%d I_scale_analog=%d\n", s.gconf,
+                      s.spreadCycle, s.pdnDisable, s.mstepReg, s.iScaleAnalog);
+        Serial.printf("  CHOPCONF 0x%08lX  microsteps=%u intpol=%d dedge=%d toff=%u hstrt=%u hend=%u tbl=%u\n",
+                      s.chopconf, s.microsteps, s.intpol, s.dedge, s.toff, s.hstrt, s.hend, s.tblClocks);
+        Serial.printf("  current  %u mA RMS run, %u mA hold (set)  now %u mA (cs_actual=%u)\n", s.runMa, s.holdMa,
+                      s.currentMa, s.csActual);
         Serial.printf("  DRV_STATUS 0x%08lX  ot=%d otpw=%d s2ga=%d s2gb=%d s2vsa=%d s2vsb=%d ola=%d olb=%d stst=%d\n",
-                      drv, st.ot, st.otpw, st.s2ga, st.s2gb, st.s2vsa, st.s2vsb, st.ola, st.olb, st.stst);
-        GSTAT_t gs{0};
-        gs.sr = driver.GSTAT();
-        Serial.printf("  GSTAT reset=%d drv_err=%d uv_cp=%d   MSCNT %u\n", gs.reset, gs.drv_err, gs.uv_cp, driver.MSCNT());
-        Serial.printf("  UART %s\n", driver.CRCerror ? "CRC ERROR" : "ok");
+                      s.drvStatus, s.ot, s.otpw, s.s2ga, s.s2gb, s.s2vsa, s.s2vsb, s.ola, s.olb, s.standstill);
+        if (s.tempOver) Serial.printf("  temperature above %u C\n", s.tempOver);
+        else Serial.println("  temperature below 120 C");
+        Serial.printf("  GSTAT reset=%d drv_err=%d uv_cp=%d   MSCNT %u\n", s.reset, s.drvErr, s.uvCp, s.mscnt);
+        Serial.println("  UART ok");
     }
 }

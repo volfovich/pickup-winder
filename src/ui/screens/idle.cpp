@@ -1,5 +1,6 @@
 #include "ui/screens/idle.h"
 #include "app.h"
+#include "ui/screens/driver.h"
 #include "ui/screens/setup.h"
 #include "ui/ui.h"
 
@@ -19,7 +20,7 @@ namespace ui::screens
         : buttons{
               {8, 128, 304, 56, "START", theme::GO},
               {8, 192, 148, 42, "SETUP"},
-              {164, 192, 148, 42, "DRIVER", theme::BUTTON, false}, // UI-5
+              {164, 192, 148, 42, "DRIVER"},
           },
           group(buttons, BTN_COUNT)
     {
@@ -88,6 +89,7 @@ namespace ui::screens
                 }
                 break;
             case BTN_SETUP: show(setup); break;
+            case BTN_DRIVER: show(driver); break;
             default: break;
         }
     }

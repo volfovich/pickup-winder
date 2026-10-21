@@ -201,6 +201,8 @@ namespace winder
     {
         if (inRun() || motor.moving()) return "a run is in progress — resume or finish it first";
         if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
+        tmc::Fault f = tmc::poll(nullptr); // e.g. 24 V switched off and on since the last re-init
+        if (f != tmc::Fault::None) return tmc::faultName(f);
         if (const char* err = checkTurns(s.turns)) return err;
         if (const char* err = checkRpm(s.rpm)) return err;
         if (const char* err = checkAccel(s.accelRpmPerS)) return err;

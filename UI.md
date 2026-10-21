@@ -2,7 +2,7 @@
 
 A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
 
-Status: **UI-1 to UI-4 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume). Next: UI-5 (Driver screen). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). Next: traverse (TBD Phase B), then UI-6. Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -194,11 +194,20 @@ The `.` key is enabled only for decimal fields (wire Ø, width and offset, later
 A red screen with the fault name (e.g. "driver over-temperature" or "UART not responding"), **"count unreliable"**, and the turns done when it happened. Buttons: **[RE-INIT DRIVER]** and **[OK]** (back to Idle). The driver is already disabled at this point, as in step 1.
 
 ### Driver
-Live TMC2209 status, the same as the serial `drv` command:
-- version, spreadCycle, microsteps, current, `cs_actual`;
-- fault flags, GSTAT, MSCNT.
+Live TMC2209 status, the same data as the serial `drv` command, refreshed twice a second:
+- version and whether the driver is configured;
+- spreadCycle (red if not), microsteps, chopper settings;
+- run / hold current as set, and the current used right now (`cs_actual`);
+- motor enabled or free (the driver's EN input), temperature band (`t120`…`t157`, `otpw`, `ot`);
+- faults: shorts, GSTAT reset / undervoltage / drv_err; MSCNT.
 
-Buttons: **[RE-INIT]** and **[BACK]**.
+Open-load flags are not shown: the datasheet says they are often set falsely at standstill.
+
+Each UART read takes about 5 ms (TMCStepper waits 2 ms before and after the reply), so the screen reads **one register per loop pass** instead of all six at once. Reads pause while the motor turns; the fault watch owns the UART then.
+
+Buttons: **[RE-INIT DRIVER]** and **[BACK]**. A failed re-init shows on the first line ("no response" or "NOT CONFIGURED").
+
+START also checks the driver before a run, as RESUME already did. So a driver that lost its configuration (e.g. 24 V switched off and on while idle) refuses the run with "driver was reset" instead of faulting 100 ms into it.
 
 ### Touch calibration
 - **When it runs:** automatically on first boot (no valid data in EEPROM), or if the screen is **held for 3 s during boot**.
@@ -233,6 +242,7 @@ Today `stop` ends the run. For RESUME:
 
 - **UI-1:** taps land correctly near all four corners and the centre after calibration, and calibration survives a power cycle.
 - **Timing:** loop time at most 5 ms per pass while the Running screen updates (debug stat). The 100 ms fault poll stays on time.
+  - Known exception: the fault poll itself reads GSTAT and DRV_STATUS, about 10 ms of blocking UART every 100 ms while winding. Stepping is interrupt-driven, so the count is unaffected, but a STOP tap can wait up to ~10 ms. A non-blocking UART read would fix this if it ever matters.
 - **Exact count with the UI active:** 1000 turns at 1500 RPM, with the screen updating and touches during the run → `OK`, pulse check `OK`.
 - **STOP response:** the ramp-down starts on the first tap. A second tap stops on the next step. RESUME finishes with the exact total.
 - **Serial still works** at the same time: `status` during a UI-started run, and `stop` from serial.
