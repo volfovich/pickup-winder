@@ -2,7 +2,7 @@
 
 The wire guide lays the wire in even layers across the bobbin.
 
-**Status:** firmware, serial commands and touch screens (Guide, Bobbin) are written. The position maths is host-tested, and the settings and refusals are checked over serial. **The hardware is not wired yet**, so homing, jogging and following are untested on the real slide. The guide is **off by default** (`traverse off`): the machine winds exactly as before until the slide is wired and switched on.
+**Status:** **wired and brought up on hardware** (checklist below, all 9 steps). Homing repeats, jogs measure 1.00 mm, and dry winds at 300 and 1500 RPM end exactly at the pattern's position with both pulse checks `OK` and a maximum guide lag of 1 microstep, also across six STOP / RESUMEs in one run. Still to do: a real wind with wire, to check that the layers lie flat. The guide is **off by default** (`traverse off`): the machine winds as before until it's switched on.
 
 Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](README.md). Touch UI: [UI.md](UI.md).
 
@@ -20,7 +20,7 @@ Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](READM
   - **Power it from 3.3 V, not 5 V.** Teensy 4.0 pins are not 5 V tolerant, and the module pulls SIG up to its VCC.
   - **Home is the motor end = 0 mm.** Mount the switch so it triggers ~1 mm **before** the slide's mechanical hard stop.
   - Wire the switch **normally closed** if the module allows: a broken wire then reads as "triggered", and homing fails safe instead of driving into the hard stop.
-  - Signal polarity differs between modules: `ENDSTOP_TRIGGERED_LEVEL` in `config.h`, checked with the `endstop` command before the first homing.
+  - Signal polarity differs between modules: `ENDSTOP_TRIGGERED_LEVEL` in `config.h`, checked with the `endstop` command before the first homing. The module on this build pulls SIG **low** when pressed (`0`).
 
 ### Pins (Teensy 4.0)
 
@@ -54,7 +54,7 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 
 1. `drv`: both drivers answer; the traverse at address 1 says "configured and verified".
 2. `endstop`, then press the switch by hand and `endstop` again: it must read "open", then "PRESSED". If it's the other way round, flip `ENDSTOP_TRIGGERED_LEVEL` in `config.h`.
-3. `jog 1`: the carriage must move **away from the motor**. If it moves toward it, set `TRAVERSE_DIR_INVERT = true`.
+3. `jog 1`: the carriage must move **away from the motor**. If it moves toward it, set `TRAVERSE_DIR_INVERT = true` (needed on this build).
 4. `jog 1` / `jog -1` measured with calipers: 1.00 mm each.
 5. Keep a hand near the 24 V switch: `home` (or HOME on the Guide screen). It approaches the switch, backs off, re-approaches slowly and parks at 1.0 mm. Repeat 10×: the position repeats.
 6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end. Try the jog buttons on the Guide screen.
@@ -147,7 +147,9 @@ Before homing, `jog` works without limits but at most ±5 mm per command; `goto`
 3. The **spindle starts**, then the guide switches to Follow (the spindle has made at most one step by then).
 4. Pause / resume / E-STOP need nothing extra: the guide holds while the spindle stands.
 5. The **fault watch polls the two drivers alternately**, one driver (GSTAT + DRV_STATUS) per 100 ms tick, so the loop blocks no longer than with the spindle alone. A traverse fault or soft-limit hit aborts the run like a spindle fault; the Fault screen names it ("traverse: ...").
-6. **The run summary** adds a **traverse pulse check** (MSCNT before / after against the net guide steps) and the guide's maximum lag in steps.
+6. **The run summary** adds a **traverse pulse check** (MSCNT before / after against the net guide steps), the raw MSCNT values, and the guide's maximum lag in steps.
+   - Both MSCNT reads wait **300 ms** for the guide to settle: after the move to the start position (before the spindle starts), and after the run (the Done screen shows "guide pulse check  ..." meanwhile). With `intpol` the driver spreads each step over the previous step interval, so a read right after a step can land between two microsteps. At rest at 16 microsteps MSCNT is always 8 + 16·k; the serial line marks other values "(off-grid)".
+   - Found in bring-up: reading the start value straight after positioning gave a false MISMATCH (+0) while the guide had received every step.
 
 ### Settings and commands
 
@@ -176,13 +178,15 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 - [x] Run flow in `src/app.*`: positioning → spindle start → follow; traverse faults abort the run; alternating fault watch
 - [x] Pause / resume: done in UI-4; the guide needs nothing extra
 - [x] Settings in EEPROM, serial commands, traverse pulse check and lag in the summary
-- [ ] Hardware bring-up (checklist above)
+- [x] Hardware bring-up (checklist above), 2026-10-21
 - [x] UI-6: Guide, Bobbin and Diagnostics screens, flange teaching, layer n / N on Running, guide pulse check on Done (see [UI.md](UI.md))
 - [ ] EN pull-ups (10 kΩ to 3.3 V) on both drivers
 
 ## Tests (on hardware)
 
 - [x] Home 10× in a row: the position repeats
-- [ ] Wind without wire; measure the carriage at layer reversals (calipers / dial indicator)
-- [ ] `stop` mid-layer, then `resume`: the carriage continues from where it was
-- [ ] Count and driver pulse checks stay `OK` on both axes at 1500 RPM
+- [x] Wind without wire at 300 and 1500 RPM: the run ends at the pattern's position to the step (e.g. 1000 turns → 9.068 mm), maximum lag 1 microstep
+- [ ] Measure the carriage at layer reversals (calipers / dial indicator)
+- [x] `stop` mid-layer, then `resume`: the carriage continues from where it was (six pauses in one 1500 RPM run, end position and pulse checks exact)
+- [x] Count and driver pulse checks stay `OK` on both axes at 1500 RPM
+- [ ] Real wind with wire: the layers lie flat (else adjust the pitch in `WIRE_SIZES`)

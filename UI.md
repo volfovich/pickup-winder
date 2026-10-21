@@ -2,7 +2,7 @@
 
 The winder's front panel: a 2.8" ILI9341 display with HR2046 resistive touch. **Touch only: no hardware buttons.** The USB serial console works alongside it.
 
-**Status: UI-1 to UI-6 done.** UI-1 … UI-5 are tested on hardware. The UI-6 guide screens work, but homing, flange teaching and layer display can only be fully tested once the guide is wired ([TRAVERSE.md](TRAVERSE.md)). Overall roadmap: [TBD.md](TBD.md). Firmware overview: [README.md](README.md).
+**Status: UI-1 to UI-6 done and tested on hardware**, including homing, jogging, flange teaching, layer n / N and the guide pulse check with the guide wired ([TRAVERSE.md](TRAVERSE.md)). Overall roadmap: [TBD.md](TBD.md). Firmware overview: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -211,7 +211,7 @@ The `.` key is enabled only for lengths in mm (inner width, margin), with one de
 +--------------------------------------------------+
 ```
 - The headline is **COMPLETE**, **ENDED EARLY** (FINISH) or **COUNT MISMATCH**.
-- With the guide, the steps line is replaced by **spindle pulse check** and **guide pulse check**.
+- With the guide, the steps line is replaced by **spindle pulse check** and **guide pulse check** (shown as "..." for 0.3 s while the guide driver settles).
 - After an over-temperature pre-warning: "driver got hot - lower the current".
 - **OK** returns to Idle, where START begins the next run. It doesn't restart straight away, because the bobbin usually needs changing first, and a spindle that starts from a single tap here would be easy to set off by accident.
 
@@ -306,7 +306,7 @@ In `src/winder.*`, used by both the screen and serial:
 | **UI-4** | Running, Paused, Done, Fault + pause / resume | Done, tested |
 | **UI-5** | Driver screen | Done, tested |
 | — | Text fitting, splash screen, heat (motor free / holding, HOT warning) | Done, tested |
-| **UI-6** | Bobbin, Guide and Diagnostics screens; layer n / N; guide pulse check | Done; guide parts tested once the guide is wired |
+| **UI-6** | Bobbin, Guide and Diagnostics screens; layer n / N; guide pulse check | Done, tested |
 | **UI-7** | Presets | Optional, SD card |
 
 ## 8. Verification
@@ -317,7 +317,7 @@ In `src/winder.*`, used by both the screen and serial:
 - **STOP response:** the ramp-down starts on the first tap; a second tap stops on the next step; RESUME finishes with the exact total.
 - **Serial at the same time:** `status` during a screen-started run, and `stop` from serial.
 - **Fault path:** 24 V off during a run → the Fault screen, driver disabled; **RE-INIT** recovers after power returns.
-- **Guide screens (after wiring):** homing, jog, flange teaching, layer n / N and the guide pulse check; see the checklist in [TRAVERSE.md](TRAVERSE.md#bring-up-checklist-after-wiring).
+- **Guide screens:** homing, jog, flange teaching, layer n / N and the guide pulse check, tested in the bring-up ([TRAVERSE.md](TRAVERSE.md#bring-up-checklist-after-wiring)). Done shows "guide pulse check  ..." for 0.3 s while the guide driver settles, then the result.
 
 ## 9. Decisions
 

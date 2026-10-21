@@ -28,6 +28,7 @@ namespace winder
         Mismatch,    // it didn't (see offset)
         Unavailable, // UART read failed
         Skipped,     // run faulted
+        Pending,     // the guide driver is settling after the run (read shortly)
     };
 
     struct Settings

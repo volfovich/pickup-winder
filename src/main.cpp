@@ -335,7 +335,7 @@ namespace
 
 namespace
 {
-    void printTraverseSummary()
+    void printTraversePulseCheck()
     {
         int16_t off;
         switch (app::traversePulseCheck(&off))
@@ -346,9 +346,22 @@ namespace
                 break;
             case winder::PulseCheck::Unavailable: Serial.println("  traverse pulse check: unavailable"); break;
             case winder::PulseCheck::Skipped: Serial.println("  traverse pulse check: skipped (fault)"); break;
+            case winder::PulseCheck::Pending: return; // printed once the driver has settled
         }
+        // At rest MSCNT sits on the microstep grid (8, 24, 40 ... at 16 microsteps)
+        uint16_t a, b;
+        int32_t net;
+        app::traverseMscnt(&a, &b, &net);
+        auto grid = [](uint16_t v) { return v % 16 == 8 ? "" : " (off-grid)"; };
+        Serial.printf("  traverse MSCNT %u%s -> %u%s, net %+ld steps sent (driver moved %+d mod 1024, expected %+ld)\n",
+                      a, grid(a), b, grid(b), net, (int)((b - a) & 0x3FF), (long)((net * 16) & 0x3FF));
+    }
+
+    void printTraverseSummary()
+    {
         Serial.printf("  traverse max lag %ld step(s), now at %.3f mm\n", traverse::maxFollowError(),
                       traverse::positionMm());
+        printTraversePulseCheck();
     }
 
     void printTraverseEvent()
@@ -407,6 +420,7 @@ void loop()
         if (winder::lastOutcome() == winder::Outcome::Faulted)
             Serial.println("driver disabled after fault — check hardware, then 'init'");
     }
+    if (app::traversePulseChecked()) printTraversePulseCheck();
     printTraverseEvent();
     printProgress();
     ui::update();

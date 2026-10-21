@@ -101,5 +101,7 @@ namespace app
     // The current / last run used the traverse: its pattern and pulse check
     bool traverseRun();
     const traverse_math::Pattern& runPattern();
-    winder::PulseCheck traversePulseCheck(int16_t* offsetSteps);
+    winder::PulseCheck traversePulseCheck(int16_t* offsetSteps); // Pending just after the run
+    bool traversePulseChecked();                                 // the pending check finished this pass
+    void traverseMscnt(uint16_t* start, uint16_t* end, int32_t* netSteps); // raw values behind the check
 }

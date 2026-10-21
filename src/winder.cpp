@@ -369,6 +369,7 @@ namespace winder
                 break;
             case PulseCheck::Unavailable: Serial.println("  driver pulse check: unavailable (UART read failed)"); break;
             case PulseCheck::Skipped: Serial.println("  driver pulse check: skipped (fault)"); break;
+            case PulseCheck::Pending: break; // only the guide's check is deferred
         }
 #ifdef STEP_LOOPBACK_PIN
         uint32_t lb = loopbackCount;

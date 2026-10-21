@@ -4,8 +4,8 @@
 |---|---|---|
 | Spindle with exact turn counting | **done**, tested on hardware | [README.md](README.md) |
 | Touch front panel UI-1 … UI-5 | **done**, tested on hardware | [UI.md](UI.md) |
-| Wire traverse | firmware written; **hardware not wired yet** | [TRAVERSE.md](TRAVERSE.md) |
-| UI-6: traverse screens (Bobbin, Guide, layer n / N) | written; full test after the traverse bring-up | [UI.md](UI.md) |
+| Wire traverse | **done**, brought up on hardware (dry winds at 300 / 1500 RPM exact); next: a real wind with wire | [TRAVERSE.md](TRAVERSE.md) |
+| UI-6: traverse screens (Bobbin, Guide, layer n / N) | **done**, tested on hardware | [UI.md](UI.md) |
 | UI-7: presets | optional, SD card | [UI.md](UI.md) |
 
 ## Later / ideas

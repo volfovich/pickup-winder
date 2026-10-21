@@ -64,6 +64,18 @@ namespace app
         bool travRun            = false;
         bool travMscntValid     = false;
         uint16_t travMscntStart = 0, travMscntEnd = 0;
+        bool travMscntPending   = false; // end read waits for the driver to settle
+        bool travPulseDone      = false; // the end read happened this pass
+        uint32_t travEndMs      = 0;
+
+        // With intpol the driver spreads each step over the previous step
+        // interval, so MSCNT read right after a step can be between two
+        // microsteps. Both reads wait for the guide to settle: after the move
+        // to the start position, and after the run (whose last guide steps
+        // are sparse, one per ~14 spindle steps).
+        constexpr uint32_t MSCNT_SETTLE_MS = 300;
+        bool atStart       = false; // positioning: the guide is at the start, settling
+        uint32_t atStartMs = 0;
         int32_t travStartPos    = 0, travEndPos = 0;
         traverse::Event travEvent = traverse::Event::None;
 
@@ -208,7 +220,17 @@ namespace app
             traverse::stopFollow();
             travEndPos = traverse::positionSteps();
             if (winder::lastOutcome() == winder::Outcome::Faulted) travMscntValid = false;
-            else if (travMscntValid) travMscntValid = tmc::traverse.readMscnt(&travMscntEnd);
+            travMscntPending = travMscntValid;
+            travEndMs        = millis();
+        }
+
+        void readTraverseMscntEnd()
+        {
+            travPulseDone = false;
+            if (!travMscntPending || millis() - travEndMs < MSCNT_SETTLE_MS) return;
+            travMscntPending = false;
+            travMscntValid   = tmc::traverse.readMscnt(&travMscntEnd);
+            travPulseDone    = true;
         }
     }
 
@@ -252,7 +274,16 @@ namespace app
     winder::Event update()
     {
         travEvent = traverse::update();
-        if (positioningNow && !traverse::busy()) startWithTraverse();
+        if (positioningNow && !traverse::busy())
+        {
+            if (!atStart)
+            {
+                atStart   = true;
+                atStartMs = millis();
+            }
+            else if (millis() - atStartMs >= MSCNT_SETTLE_MS) startWithTraverse();
+        }
+        readTraverseMscntEnd();
 
         watchDriver();
         winder::Event e = winder::update();
@@ -507,8 +538,9 @@ namespace app
     const char* start()
     {
         if (positioningNow) return "moving to the start position";
-        startErr = nullptr;
-        travRun  = false;
+        startErr         = nullptr;
+        travRun          = false;
+        travMscntPending = false;
         if (!trav.on) return startSpindle();
 
         if (const char* err = winder::canStart(current)) return err;
@@ -525,6 +557,7 @@ namespace app
         if (!makeRunPattern()) return "margins leave no room to wind";
         if (const char* err = traverse::moveToSteps(traverse_math::position(pattern, 0))) return err;
         positioningNow = true;
+        atStart        = false;
         return nullptr;
     }
 
@@ -617,11 +650,24 @@ namespace app
         return pattern;
     }
 
+    bool traversePulseChecked()
+    {
+        return travPulseDone;
+    }
+
+    void traverseMscnt(uint16_t* start, uint16_t* end, int32_t* netSteps)
+    {
+        *start    = travMscntStart;
+        *end      = travMscntEnd;
+        *netSteps = travEndPos - travStartPos;
+    }
+
     winder::PulseCheck traversePulseCheck(int16_t* offsetSteps)
     {
         if (offsetSteps) *offsetSteps = 0;
         if (winder::lastOutcome() == winder::Outcome::Faulted) return winder::PulseCheck::Skipped;
         if (!travMscntValid) return winder::PulseCheck::Unavailable;
+        if (travMscntPending) return winder::PulseCheck::Pending;
         return winder::checkMscnt(travMscntStart, travMscntEnd, (uint32_t)abs(travEndPos - travStartPos), offsetSteps);
     }
 }

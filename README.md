@@ -9,10 +9,10 @@ Firmware **v1.0** (`FIRMWARE_NAME` / `FIRMWARE_VERSION` in `include/config.h`).
 | Part | State |
 |---|---|
 | Spindle with exact turn counting | **Done, tested on hardware.** 1000- and 3000-turn runs at 1500 RPM with exact counts and a clean driver pulse check. |
-| Touch UI (UI-1 … UI-6) | **Done.** UI-1 … UI-5 tested on hardware; the UI-6 guide screens can only be fully tested once the guide is wired. See [UI.md](UI.md). |
+| Touch UI (UI-1 … UI-6) | **Done, tested on hardware.** See [UI.md](UI.md). |
 | Pause / resume | **Done:** STOP pauses with the count exact; RESUME winds the rest. |
 | Heat | Hold current 25 %, spindle released 2 min after a run, run current adjustable (`current N`). |
-| Wire guide (traverse) | **Firmware written and host-tested; hardware not wired yet.** Off by default (`traverse off`), so the machine winds exactly as before. See [TRAVERSE.md](TRAVERSE.md). |
+| Wire guide (traverse) | **Wired and brought up on hardware.** Dry winds at 300 and 1500 RPM, with STOP / RESUME, end exactly on the pattern with both pulse checks `OK`. Next: a real wind with wire. Off by default (`traverse off`). See [TRAVERSE.md](TRAVERSE.md). |
 
 Roadmap and ideas: [TBD.md](TBD.md).
 
@@ -23,7 +23,7 @@ Roadmap and ideas: [TBD.md](TBD.md).
 | Teensy 4.0 | 600 MHz, PlatformIO `teensy40` |
 | Spindle: NEMA 17 + TMC2209 | 1.8°, rated 2.8 A/phase; driver R_SENSE 0.11 Ω (BTT/FYSETC-style module), heatsink |
 | Display | 2.8" ILI9341 SPI TFT with HR2046 (XPT2046-compatible) resistive touch |
-| Wire guide *(not wired yet)* | 28T0601-50 slide (NEMA 11, 1 mm lead, 50 mm), second TMC2209 at UART address 1, 3-wire endstop at the motor end. Details: [TRAVERSE.md](TRAVERSE.md) |
+| Wire guide | 28T0601-50 slide (NEMA 11, 1 mm lead, 50 mm), second TMC2209 at UART address 1, 3-wire endstop at the motor end. Details: [TRAVERSE.md](TRAVERSE.md) |
 | 24 V supply | motor power (VM) for both drivers; its switch is the emergency off |
 
 ### Wiring
@@ -88,7 +88,7 @@ The status bar shows whether the spindle is **"ready - motor free"** or **"ready
 ## Safety and verification
 
 - **End-of-run check:** steps taken vs. target → `OK` / `MISMATCH`.
-- **Driver pulse check:** each driver's own microstep counter (`MSCNT`) is read before and after the run and must match the pulses sent. This catches pulses lost or added on the STEP wire. With the guide, both drivers are checked.
+- **Driver pulse check:** each driver's own microstep counter (`MSCNT`) is read before and after the run and must match the pulses sent. This catches pulses lost or added on the STEP wire. With the guide, both drivers are checked; the guide's counter is read once it has settled (300 ms after it stops), see [TRAVERSE.md](TRAVERSE.md#a-run-with-the-traverse-on).
 - **Fault watch** (every 100 ms while winding, the two drivers in turn): over-temperature, short to ground / supply, UART lost (3 failed reads in a row), driver reset, charge-pump undervoltage, driver error. A fault aborts the run as **"count unreliable"**, disables the driver and shows the Fault screen. START and RESUME also check the driver first.
 - **Over-temperature pre-warning** (~120 °C chip): the status bar shows **"winding - HOT"** and the Done screen says so.
 - **Touch-only safety:** STOP is always on screen while the motor turns, and reacts on touch-down. A frozen UI still can't over-wind: the step timer stops on the exact target by itself. The 24 V switch is the emergency off.

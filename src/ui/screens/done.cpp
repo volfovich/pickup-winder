@@ -10,6 +10,35 @@ namespace ui::screens
 {
     Done done;
 
+    namespace
+    {
+        constexpr int16_t SPINDLE_CHECK_Y = 106;
+        constexpr int16_t GUIDE_CHECK_Y   = 128;
+
+        void drawPulseCheck(const char* name, winder::PulseCheck pc, int16_t offset, int16_t y)
+        {
+            char line[48];
+            uint16_t color = theme::OK;
+            switch (pc)
+            {
+                case winder::PulseCheck::Ok: snprintf(line, sizeof(line), "%s pulse check  OK", name); break;
+                case winder::PulseCheck::Mismatch:
+                    snprintf(line, sizeof(line), "%s pulse check  MISMATCH (%+d)", name, offset);
+                    color = theme::ERR;
+                    break;
+                case winder::PulseCheck::Pending:
+                    snprintf(line, sizeof(line), "%s pulse check  ...", name);
+                    color = theme::MUTED;
+                    break;
+                default:
+                    snprintf(line, sizeof(line), "%s pulse check  unavailable", name);
+                    color = theme::WARN;
+                    break;
+            }
+            printAt(line, 16, y, theme::FONT_BODY, color);
+        }
+    }
+
     Done::Done()
         : buttons{
               {8, 188, 148, 46, "OK", theme::GO},
@@ -53,33 +82,20 @@ namespace ui::screens
 
         // Driver pulse checks: did each driver receive every step sent?
         int16_t off;
-        auto describe = [&](const char* name, winder::PulseCheck pc, int16_t o, int16_t y) {
-            uint16_t pcColor = theme::OK;
-            switch (pc)
-            {
-                case winder::PulseCheck::Ok: snprintf(line, sizeof(line), "%s pulse check  OK", name); break;
-                case winder::PulseCheck::Mismatch:
-                    snprintf(line, sizeof(line), "%s pulse check  MISMATCH (%+d)", name, o);
-                    pcColor = theme::ERR;
-                    break;
-                default:
-                    snprintf(line, sizeof(line), "%s pulse check  unavailable", name);
-                    pcColor = theme::WARN;
-                    break;
-            }
-            printAt(line, 16, y, theme::FONT_BODY, pcColor);
-        };
         if (app::traverseRun())
         {
             // No room for the steps line: the turns above show the fraction
-            describe("spindle", winder::pulseCheck(&off), off, 106);
-            describe("guide", app::traversePulseCheck(&off), off, 128);
+            drawPulseCheck("spindle", winder::pulseCheck(&off), off, SPINDLE_CHECK_Y);
+            winder::PulseCheck guide = app::traversePulseCheck(&off);
+            drawPulseCheck("guide", guide, off, GUIDE_CHECK_Y);
+            guidePending = guide == winder::PulseCheck::Pending;
         }
         else
         {
             snprintf(line, sizeof(line), "steps  %s", fmtThousands(n, a, sizeof(a)));
-            printAt(line, 16, 106, theme::FONT_BODY, theme::MUTED);
-            describe("driver", winder::pulseCheck(&off), off, 128);
+            printAt(line, 16, SPINDLE_CHECK_Y, theme::FONT_BODY, theme::MUTED);
+            drawPulseCheck("driver", winder::pulseCheck(&off), off, GUIDE_CHECK_Y);
+            guidePending = false;
         }
 
         snprintf(line, sizeof(line), "winding time  %s", fmtDuration(winder::windingMs(), a, sizeof(a)));
@@ -88,6 +104,17 @@ namespace ui::screens
 
         group.reset();
         group.drawAll();
+    }
+
+    void Done::update()
+    {
+        if (!guidePending) return;
+        int16_t off;
+        winder::PulseCheck guide = app::traversePulseCheck(&off);
+        if (guide == winder::PulseCheck::Pending) return;
+        guidePending = false;
+        tft().fillRect(16, GUIDE_CHECK_Y - 2, theme::W - 16, 20, theme::BG);
+        drawPulseCheck("guide", guide, off, GUIDE_CHECK_Y);
     }
 
     void Done::onTouch(const touch::Event& e)
