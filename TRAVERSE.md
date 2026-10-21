@@ -56,7 +56,7 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 2. `endstop`, then press the switch by hand and `endstop` again: it must read "open", then "PRESSED". If it's the other way round, flip `ENDSTOP_TRIGGERED_LEVEL` in `config.h`.
 3. `jog 1`: the carriage must move **away from the motor**. If it moves toward it, set `TRAVERSE_DIR_INVERT = true`.
 4. `jog 1` / `jog -1` measured with calipers: 1.00 mm each.
-5. Keep a hand near the 24 V switch: `home` (or HOME on the Guide screen). It approaches the switch, backs off, re-approaches slowly and parks at 0.5 mm. Repeat 10×: the position repeats.
+5. Keep a hand near the 24 V switch: `home` (or HOME on the Guide screen). It approaches the switch, backs off, re-approaches slowly and parks at 1.0 mm. Repeat 10×: the position repeats.
 6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end. Try the jog buttons on the Guide screen.
 7. **Teach the bobbin** (see below): mount a bobbin; on the Guide screen jog until the wire meets the inside of flange 1, tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. Check with **GO TO FLANGE** (tap twice: flange 1, then flange 2) that the wire lines up with both. Set `awg`, `insulation`, `margin` on the Bobbin screen.
 8. `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals: they should stay one margin inside each flange. Both pulse checks `OK`.
@@ -132,7 +132,7 @@ Why this design:
 2. Fast approach at 5 mm/s until the switch triggers, checked every tick. Nothing within 52 mm → **"endstop not found"**.
 3. Back off 1 mm. Still pressed → **"endstop did not release"**.
 4. Slow approach at 0.5 mm/s → that point is **0 mm**.
-5. Park at 0.5 mm, clear of the switch.
+5. Park at 1.0 mm, clear of the switch (0.5 mm left this switch's lever resting on the carriage).
 
 Before homing, `jog` works without limits but at most ±5 mm per command; `goto` and START need homing. Switching the traverse driver off (`release`, a re-init, a traverse fault) forgets the home position.
 
@@ -182,7 +182,7 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 
 ## Tests (on hardware)
 
-- [ ] Home 10× in a row: the position repeats
+- [x] Home 10× in a row: the position repeats
 - [ ] Wind without wire; measure the carriage at layer reversals (calipers / dial indicator)
 - [ ] `stop` mid-layer, then `resume`: the carriage continues from where it was
 - [ ] Count and driver pulse checks stay `OK` on both axes at 1500 RPM

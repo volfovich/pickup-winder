@@ -29,7 +29,7 @@ constexpr uint8_t PIN_TRAV_EN   = 22; // active LOW
 // Teensy pins are not 5 V tolerant), GND, SIG to this pin. Check the level
 // with the `endstop` command, pressing the switch by hand.
 constexpr uint8_t PIN_ENDSTOP             = 21;
-constexpr uint8_t ENDSTOP_TRIGGERED_LEVEL = 1; // 1 = SIG high when pressed
+constexpr uint8_t ENDSTOP_TRIGGERED_LEVEL = 0; // 0 = SIG low when pressed (measured on this module)
 
 // Display (ILI9341) + touch (HR2046 / XPT2046) on the shared SPI bus:
 // MOSI 11, MISO 12, SCK 13. Backlight LED and VCC to 3.3 V.
@@ -90,7 +90,7 @@ constexpr uint32_t STEPS_PER_REV      = FULL_STEPS_PER_REV * MICROSTEPS;
 constexpr uint32_t TRAVERSE_MICROSTEPS   = 16;
 constexpr uint32_t TRAVERSE_STEPS_PER_MM = 200 * TRAVERSE_MICROSTEPS / 1; // 3200: 0.31 um per step
 constexpr uint32_t TRAVERSE_TRAVEL_UM    = 50000;
-constexpr bool     TRAVERSE_DIR_INVERT   = false; // set true if `jog 1` moves toward the motor
+constexpr bool     TRAVERSE_DIR_INVERT   = true;  // +jog moved toward the switch on this build
 
 // ---------------------------------------------------------------------------
 // Limits and defaults
@@ -114,7 +114,7 @@ constexpr uint32_t TRAVERSE_ACCEL_UM_S2   = 50000;
 constexpr uint32_t HOMING_FAST_UM_S       = 5000;
 constexpr uint32_t HOMING_SLOW_UM_S       = 500;
 constexpr uint32_t HOMING_BACKOFF_UM      = 1000;
-constexpr uint32_t HOMING_CLEAR_UM        = 500;  // park this far off the switch after homing
+constexpr uint32_t HOMING_CLEAR_UM        = 1000; // park this far off the switch after homing
 constexpr uint32_t HOMING_SEARCH_UM       = 52000;
 // Fastest the wire guide may have to follow while winding (wire x RPM / 60)
 constexpr uint32_t TRAVERSE_MAX_FOLLOW_UM_S = 6000;
