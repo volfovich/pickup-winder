@@ -6,35 +6,75 @@ namespace tmc
 {
     namespace
     {
-        TMC2209Stepper driver(&TMC_SERIAL, R_SENSE, DRIVER_ADDR);
-        bool configured = false;
+        TMC2209Stepper spindleChip(&TMC_SERIAL, R_SENSE, DRIVER_ADDR);
+        TMC2209Stepper traverseChip(&TMC_SERIAL, TRAVERSE_R_SENSE, TRAVERSE_DRIVER_ADDR);
+        bool busStarted = false;
 
         constexpr uint8_t TMC2209_VERSION = 0x21;
 
-        bool check(bool ok, const char* what)
+        TMC2209Stepper& chipFor(const Config& c)
         {
-            if (!ok) Serial.printf("TMC2209: verify FAILED: %s\n", what);
+            return c.address == TRAVERSE_DRIVER_ADDR ? traverseChip : spindleChip;
+        }
+
+        bool check(const Config& c, bool ok, const char* what)
+        {
+            if (!ok) Serial.printf("TMC2209 %s: verify FAILED: %s\n", c.name, what);
             return ok;
         }
 
         // RMS current for a current scale (CS 0..31), as TMCStepper computes it
-        uint16_t csToMa(uint8_t cs, bool vsense)
+        uint16_t csToMa(uint8_t cs, bool vsense, float rSense)
         {
-            return (cs + 1) / 32.0f * (vsense ? 0.180f : 0.325f) / (R_SENSE + 0.02f) / 1.41421f * 1000;
+            return (cs + 1) / 32.0f * (vsense ? 0.180f : 0.325f) / (rSense + 0.02f) / 1.41421f * 1000;
         }
     }
 
-    bool begin()
+    Driver spindle({"spindle", DRIVER_ADDR, R_SENSE, RMS_CURRENT_MA, SPINDLE_HOLD_PCT, MICROSTEPS, false});
+    Driver traverse({"traverse", TRAVERSE_DRIVER_ADDR, TRAVERSE_R_SENSE, TRAVERSE_RMS_CURRENT_MA, TRAVERSE_HOLD_PCT,
+                     TRAVERSE_MICROSTEPS, TRAVERSE_STEALTHCHOP});
+
+    Driver::Driver(const Config& c) : cfg(c), runMa(c.currentMa) {}
+
+    // Sets IRUN / IHOLD (and vsense) for runMa; checks the driver counted the writes
+    bool Driver::writeCurrent()
     {
-        configured = false;
-        TMC_SERIAL.begin(TMC_BAUD);
-        delay(10);
+        TMC2209Stepper& driver = chipFor(cfg);
+        uint8_t before         = driver.IFCNT();
+        driver.rms_current(runMa, cfg.holdPct / 100.0f);
+        uint8_t after = driver.IFCNT();
+        return !driver.CRCerror && after != before;
+    }
+
+    bool Driver::setCurrent(uint16_t mA)
+    {
+        runMa = mA;
+        if (!configured) return true;
+        bool ok = writeCurrent();
+        Serial.printf("TMC2209 %s: run current %u mA RMS, hold %u%% %s\n", cfg.name, runMa, cfg.holdPct,
+                      ok ? "(written)" : "- WRITE FAILED");
+        return ok;
+    }
+
+    bool Driver::begin(bool quiet)
+    {
+        TMC2209Stepper& driver = chipFor(cfg);
+        configured             = false;
+        if (!busStarted)
+        {
+            TMC_SERIAL.begin(TMC_BAUD);
+            delay(10);
+            busStarted = true;
+        }
 
         // Communication check — the driver only answers when VM (motor power) is on
         uint8_t ver = driver.version();
         if (driver.CRCerror || ver != TMC2209_VERSION)
         {
-            Serial.printf("TMC2209: no response (version=0x%02X). Check 24V motor power and UART wiring.\n", ver);
+            if (!quiet)
+                Serial.printf("TMC2209 %s (address %u): no response (version=0x%02X). Check 24V motor power and UART "
+                              "wiring.\n",
+                              cfg.name, cfg.address, ver);
             return false;
         }
 
@@ -42,8 +82,9 @@ namespace tmc
 
         driver.begin();                  // pdn_disable(true), mstep_reg_select(true)
         driver.I_scale_analog(false);    // current from register, not VREF
-        driver.en_spreadCycle(true);     // spreadCycle, not stealthChop
-        driver.pwm_autoscale(false);
+        driver.en_spreadCycle(!cfg.stealthChop);
+        driver.pwm_autoscale(cfg.stealthChop); // stealthChop tunes its own current regulation
+        driver.pwm_autograd(cfg.stealthChop);
 
         // Chopper: Trinamic's recommended spreadCycle starting point
         driver.toff(4);
@@ -51,10 +92,10 @@ namespace tmc
         driver.hstrt(5);
         driver.hend(0);
         driver.intpol(true);             // interpolate to 256 microsteps
-        driver.dedge(false);             // TeensyStep4 makes real pulses: step on rising edge only
-        driver.microsteps(MICROSTEPS);
+        driver.dedge(false);             // real pulses: step on rising edge only
+        driver.microsteps(cfg.microsteps);
 
-        driver.rms_current(RMS_CURRENT_MA);
+        writeCurrent();
         driver.iholddelay(10);
         driver.TPOWERDOWN(20);
 
@@ -63,32 +104,28 @@ namespace tmc
         // Read back and verify — refuse to run on a misconfigured driver
         uint8_t ifcntAfter = driver.IFCNT();
         bool ok            = true;
-        ok &= check(!driver.CRCerror, "UART CRC error reading IFCNT");
-        ok &= check(ifcntAfter != ifcntBefore, "IFCNT did not change (writes not received)");
-        ok &= check(driver.en_spreadCycle(), "GCONF.en_spreadcycle != 1");
-        ok &= check(driver.pdn_disable(), "GCONF.pdn_disable != 1");
-        ok &= check(driver.mstep_reg_select(), "GCONF.mstep_reg_select != 1");
-        ok &= check(!driver.I_scale_analog(), "GCONF.I_scale_analog != 0");
-        ok &= check(driver.microsteps() == MICROSTEPS, "CHOPCONF.mres != configured microsteps");
-        ok &= check(driver.intpol(), "CHOPCONF.intpol != 1");
-        ok &= check(!driver.dedge(), "CHOPCONF.dedge != 0");
-        ok &= check(driver.toff() == 4, "CHOPCONF.toff != 4");
-        ok &= check(!driver.CRCerror, "UART CRC error on readback");
+        ok &= check(cfg, !driver.CRCerror, "UART CRC error reading IFCNT");
+        ok &= check(cfg, ifcntAfter != ifcntBefore, "IFCNT did not change (writes not received)");
+        ok &= check(cfg, driver.en_spreadCycle() == !cfg.stealthChop, "GCONF.en_spreadcycle wrong");
+        ok &= check(cfg, driver.pdn_disable(), "GCONF.pdn_disable != 1");
+        ok &= check(cfg, driver.mstep_reg_select(), "GCONF.mstep_reg_select != 1");
+        ok &= check(cfg, !driver.I_scale_analog(), "GCONF.I_scale_analog != 0");
+        ok &= check(cfg, driver.microsteps() == cfg.microsteps, "CHOPCONF.mres != configured microsteps");
+        ok &= check(cfg, driver.intpol(), "CHOPCONF.intpol != 1");
+        ok &= check(cfg, !driver.dedge(), "CHOPCONF.dedge != 0");
+        ok &= check(cfg, driver.toff() == 4, "CHOPCONF.toff != 4");
+        ok &= check(cfg, !driver.CRCerror, "UART CRC error on readback");
 
         configured = ok;
-        Serial.printf("TMC2209: %s (spreadCycle, %u microsteps, %u mA RMS)\n",
+        Serial.printf("TMC2209 %s: %s (%s, %u microsteps, %u mA RMS)\n", cfg.name,
                       ok ? "configured and verified" : "CONFIGURATION FAILED — motion disabled",
-                      (unsigned)MICROSTEPS, (unsigned)RMS_CURRENT_MA);
+                      cfg.stealthChop ? "stealthChop" : "spreadCycle", cfg.microsteps, runMa);
         return ok;
     }
 
-    bool ready()
+    Fault Driver::poll(bool* otWarning)
     {
-        return configured;
-    }
-
-    Fault poll(bool* otWarning)
-    {
+        TMC2209Stepper& driver = chipFor(cfg);
         uint8_t g = driver.GSTAT();
         if (driver.CRCerror) return Fault::NoComm;
 
@@ -110,8 +147,9 @@ namespace tmc
         return Fault::None;
     }
 
-    bool readMscnt(uint16_t* out)
+    bool Driver::readMscnt(uint16_t* out)
     {
+        TMC2209Stepper& driver = chipFor(cfg);
         uint16_t v = driver.MSCNT();
         if (driver.CRCerror) return false;
         *out = v & 0x3FF;
@@ -134,8 +172,9 @@ namespace tmc
         return "?";
     }
 
-    bool readStatus(Status* s, uint8_t part)
+    bool Driver::readStatus(Status* s, uint8_t part)
     {
+        TMC2209Stepper& driver = chipFor(cfg);
         switch (part)
         {
             case 0:
@@ -167,8 +206,8 @@ namespace tmc
                 s->hstrt           = r.hstrt;
                 s->hend            = r.hend;
                 s->tblClocks       = 16 + 8 * r.tbl;
-                s->runMa           = csToMa(driver.irun(), r.vsense);
-                s->holdMa          = csToMa(driver.ihold(), r.vsense);
+                s->runMa           = csToMa(driver.irun(), r.vsense, cfg.rSense);
+                s->holdMa          = csToMa(driver.ihold(), r.vsense, cfg.rSense);
                 break;
             }
             case 3:
@@ -178,7 +217,7 @@ namespace tmc
                 TMC2208_n::CHOPCONF_t c{0};
                 c.sr          = s->chopconf; // part 2 comes first
                 s->csActual   = r.cs_actual;
-                s->currentMa  = csToMa(r.cs_actual, c.vsense);
+                s->currentMa  = csToMa(r.cs_actual, c.vsense, cfg.rSense);
                 s->standstill = r.stst;
                 s->otpw       = r.otpw;
                 s->ot         = r.ot;
@@ -206,20 +245,21 @@ namespace tmc
         return !driver.CRCerror;
     }
 
-    void printStatus()
+    void Driver::printStatus()
     {
         Status s{};
         for (uint8_t part = 0; part < STATUS_READS; part++)
         {
             if (!readStatus(&s, part))
             {
-                Serial.println("TMC2209: no response (check 24V motor power and UART wiring)");
+                Serial.printf("TMC2209 %s (address %u): no response (check 24V motor power and UART wiring)\n",
+                              cfg.name, cfg.address);
                 return;
             }
         }
 
-        Serial.printf("TMC2209 version 0x%02X  configured=%s  EN pin %s\n", s.version, configured ? "yes" : "NO",
-                      s.enPinOff ? "off (motor free)" : "on");
+        Serial.printf("TMC2209 %s (address %u) version 0x%02X  configured=%s  EN pin %s\n", cfg.name, cfg.address,
+                      s.version, configured ? "yes" : "NO", s.enPinOff ? "off (motor free)" : "on");
         Serial.printf("  GCONF    0x%08lX  spreadCycle=%d pdn_disable=%d mstep_reg=%d I_scale_analog=%d\n", s.gconf,
                       s.spreadCycle, s.pdnDisable, s.mstepReg, s.iScaleAnalog);
         Serial.printf("  CHOPCONF 0x%08lX  microsteps=%u intpol=%d dedge=%d toff=%u hstrt=%u hend=%u tbl=%u\n",

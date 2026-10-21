@@ -30,7 +30,11 @@ namespace ui::screens
     void Idle::enter()
     {
         drawStatusBar("IDLE");
-        shown = app::settings();
+        shown            = app::settings();
+        shownPositioning = false;
+        msgUntilMs       = 0;
+        buttons[BTN_START].label = "START";
+        buttons[BTN_START].color = theme::GO;
         drawValues();
         group.reset();
         group.drawAll();
@@ -59,8 +63,25 @@ namespace ui::screens
         printAt(shown.dir == winder::Dir::CW ? "CW" : "CCW", 268, 92, theme::FONT_VALUE, theme::FG);
     }
 
+    // With the traverse on, START first moves the guide to the start
+    // position; meanwhile START becomes CANCEL. On success the screen
+    // manager switches to Running.
+    void Idle::followPositioning()
+    {
+        bool now = app::positioning();
+        if (now == shownPositioning) return;
+        shownPositioning           = now;
+        buttons[BTN_START].label = now ? "CANCEL" : "START";
+        buttons[BTN_START].color = now ? theme::WARN : theme::GO;
+        buttons[BTN_START].draw();
+        if (now) drawMessage("moving the guide to the start position...", MSG_Y, MSG_H, theme::MUTED);
+        else drawMessage(app::startError(), MSG_Y, MSG_H, theme::ERR);
+        msgUntilMs = now ? 0 : millis() + MSG_MS;
+    }
+
     void Idle::update()
     {
+        followPositioning();
         if (msgUntilMs && millis() > msgUntilMs)
         {
             msgUntilMs = 0;
@@ -81,8 +102,8 @@ namespace ui::screens
         switch (group.handle(e))
         {
             case BTN_START:
-                // On success the screen manager switches to Running
-                if (const char* err = app::start())
+                if (app::positioning()) app::stop();
+                else if (const char* err = app::start())
                 {
                     drawMessage(err, MSG_Y, MSG_H, theme::ERR);
                     msgUntilMs = millis() + MSG_MS;

@@ -1,4 +1,5 @@
 #include "ui/widgets.h"
+#include "app.h"
 #include "tmc_driver.h"
 #include "winder.h"
 
@@ -8,7 +9,7 @@ namespace ui
     {
         const char* statusTitle = "";
 
-        enum class MachineState : uint8_t { Unknown, NotReady, Ready, Winding, Paused };
+        enum class MachineState : uint8_t { Unknown, NotReady, Ready, ReadyHolding, Winding, WindingHot, Paused };
         MachineState shownState = MachineState::Unknown;
 
         // Font sizes for fitting text, largest first
@@ -17,9 +18,11 @@ namespace ui
 
         MachineState machineState()
         {
-            if (winder::isMoving()) return MachineState::Winding;
+            if (winder::isMoving()) return app::driverHot() ? MachineState::WindingHot : MachineState::Winding;
             if (winder::state() == winder::State::Paused) return MachineState::Paused;
-            return tmc::ready() ? MachineState::Ready : MachineState::NotReady;
+            if (!tmc::spindle.ready()) return MachineState::NotReady;
+            // Outside a run the spindle is free, except in the minutes after one
+            return winder::driverEnabled() ? MachineState::ReadyHolding : MachineState::Ready;
         }
     }
 
@@ -96,6 +99,11 @@ namespace ui
             text  = "winding";
             color = theme::WARN;
         }
+        else if (shownState == MachineState::WindingHot)
+        {
+            text  = "winding - HOT";
+            color = theme::ERR;
+        }
         else if (shownState == MachineState::Paused)
         {
             text  = "paused";
@@ -103,7 +111,12 @@ namespace ui
         }
         else if (shownState == MachineState::Ready)
         {
-            text  = "driver ready";
+            text  = "ready - motor free";
+            color = theme::OK;
+        }
+        else if (shownState == MachineState::ReadyHolding)
+        {
+            text  = "ready - holding";
             color = theme::OK;
         }
         printRight(text, theme::W - 8, 7, theme::FONT_TITLE, color);

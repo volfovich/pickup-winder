@@ -2,7 +2,7 @@
 
 A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
 
-Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). Next: traverse (TBD Phase B), then UI-6. Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). Next: traverse bring-up ([TRAVERSE.md](TRAVERSE.md)), then UI-6. Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -229,7 +229,7 @@ START also checks the driver before a run, as RESUME already did. So a driver th
 - The result is saved to EEPROM, and a quick "tap anywhere" test screen confirms it.
 
 ### Later
-- **After the traverse (TBD Phase B):** a **Bobbin** screen (wire Ø, width, start offset), a **Jog/Home** screen (±0.1 / 1 / 10 mm buttons, HOME, live position) and **layer n / N** on the Running screen.
+- **After the traverse ([TRAVERSE.md](TRAVERSE.md)):** a **Bobbin** screen (wire Ø, width, start offset), a **Jog/Home** screen (±0.1 / 1 / 10 mm buttons, HOME, live position) and **layer n / N** on the Running screen.
 - **Presets:** saved recipes (e.g. "Strat neck – 42AWG – 8000T"), possibly on the SD card.
 
 ## 6. Firmware change needed: pause / resume
@@ -249,7 +249,7 @@ Today `stop` ends the run. For RESUME:
 | **UI-3** | Idle, Setup, Keypad screens | Settings can be set and validated from the screen |
 | **UI-4** | Running, Paused, Done, Fault + pause/resume | Full wind from the screen; STOP / RESUME / FINISH work |
 | **UI-5** | Driver screen | Same data as serial `drv` |
-| **UI-6** | Traverse screens | After TBD Phase B |
+| **UI-6** | Traverse screens | After the traverse bring-up ([TRAVERSE.md](TRAVERSE.md)) |
 | **UI-7** | Presets | Optional, SD card |
 
 ## 8. Verification

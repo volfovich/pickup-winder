@@ -15,24 +15,6 @@ namespace tmc
         DriverError,    // GSTAT.drv_err: driver shut down
     };
 
-    // Configures the TMC2209 over UART (spreadCycle, current, microsteps) and
-    // verifies the configuration by reading it back. Returns true on success.
-    bool begin();
-
-    // True once begin() configured and verified the driver.
-    bool ready();
-
-    // Reads DRV_STATUS and reports a fault that makes the step count unreliable.
-    // Sets *otWarning if the over-temperature pre-warning is active.
-    Fault poll(bool* otWarning);
-
-    const char* faultName(Fault f);
-
-    // Reads MSCNT, the driver's own microstep counter (0..1023). It moves by
-    // 256 / MICROSTEPS for every STEP pulse the driver receives. Returns false
-    // on a UART error.
-    bool readMscnt(uint16_t* out);
-
     // Driver configuration and status, as shown by `drv` and the Driver screen.
     struct Status
     {
@@ -57,12 +39,65 @@ namespace tmc
         bool reset, drvErr, uvCp;
     };
 
-    // A full status takes STATUS_READS UART reads of ~5 ms each. readStatus()
-    // does one of them (part 0..STATUS_READS-1), so the UI can spread a
-    // refresh over several loop passes. Returns false on a UART error.
+    // A full status takes STATUS_READS UART reads of ~5 ms each, so
+    // readStatus() does one of them per call (part 0..STATUS_READS-1).
     constexpr uint8_t STATUS_READS = 6;
-    bool readStatus(Status* s, uint8_t part);
 
-    // Prints the driver configuration and status to Serial.
-    void printStatus();
+    const char* faultName(Fault f);
+
+    struct Config
+    {
+        const char* name; // "spindle", "traverse"
+        uint8_t address;  // UART address set by MS1 / MS2
+        float rSense;
+        uint16_t currentMa; // run current (RMS), default
+        uint8_t holdPct;    // standstill current, % of the run current
+        uint16_t microsteps;
+        bool stealthChop;
+    };
+
+    // One TMC2209 on the shared single-wire UART (TMC_SERIAL).
+    class Driver
+    {
+     public:
+        explicit Driver(const Config& cfg);
+
+        // Configures the driver (chopper mode, current, microsteps) and
+        // verifies it by reading it back. Returns true on success; quiet
+        // = no serial message if the driver doesn't answer at all.
+        bool begin(bool quiet = false);
+        bool ready() const { return configured; } // begin() configured and verified it
+
+        // Reads GSTAT and DRV_STATUS and reports a fault that makes the step
+        // count unreliable. Sets *otWarning (may be nullptr) on the
+        // over-temperature pre-warning.
+        Fault poll(bool* otWarning);
+
+        // Reads MSCNT, the driver's own microstep counter (0..1023). It moves by
+        // 256 / microsteps for every STEP pulse received. False on a UART error.
+        bool readMscnt(uint16_t* out);
+
+        // One part of the status (see STATUS_READS). False on a UART error.
+        bool readStatus(Status* s, uint8_t part);
+
+        // Prints the configuration and status to Serial.
+        void printStatus();
+
+        // Run current (RMS). Written at once if the driver is configured,
+        // else at the next begin(). False if the driver didn't take it.
+        bool setCurrent(uint16_t mA);
+        uint16_t current() const { return runMa; }
+
+        const Config& config() const { return cfg; }
+
+     private:
+        bool writeCurrent();
+
+        const Config cfg;
+        uint16_t runMa;
+        bool configured = false;
+    };
+
+    extern Driver spindle;  // address 0, spreadCycle
+    extern Driver traverse; // address 1
 }

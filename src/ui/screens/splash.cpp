@@ -78,7 +78,7 @@ namespace ui::screens
     {
         int8_t s = STATUS_NONE;
         if (touch::touchedNow() && touch::calibrated()) s = STATUS_HOLD;
-        else if (ui::booted()) s = tmc::ready() ? STATUS_READY : STATUS_NOT_READY;
+        else if (ui::booted()) s = tmc::spindle.ready() ? STATUS_READY : STATUS_NOT_READY;
         if (s == shownStatus) return;
         shownStatus = s;
 

@@ -57,7 +57,8 @@ namespace winder
     float actualRpm(uint32_t rpm);
 
     // Run control. Each returns nullptr on success, else the reason.
-    const char* start(const Settings& s); // settings are fixed for the whole run
+    const char* canStart(const Settings& s); // start()'s checks, without starting
+    const char* start(const Settings& s);    // settings are fixed for the whole run
     const char* resume();                 // Paused → Running: wind the remaining turns
     const char* finish();                 // Paused → Done (ended early)
 
@@ -83,6 +84,9 @@ namespace winder
     Event update();
     Outcome lastOutcome();
     PulseCheck pulseCheck(int16_t* offsetSteps); // for the last ended run
+    // Compares a driver's MSCNT before / after with the number of steps sent
+    // (16 microsteps). Either direction is accepted.
+    PulseCheck checkMscnt(uint16_t before, uint16_t after, uint32_t stepsSent, int16_t* offsetSteps);
     void printSummary();
 
     void enableDriver(bool on);

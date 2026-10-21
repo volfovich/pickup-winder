@@ -17,6 +17,7 @@ namespace ui::screens
 
      private:
         void drawValues();
+        void followPositioning();
 
         enum : uint8_t { BTN_START, BTN_SETUP, BTN_DRIVER, BTN_COUNT };
         Button buttons[BTN_COUNT];
@@ -24,6 +25,7 @@ namespace ui::screens
         winder::Settings shown{};
         uint32_t lastCheckMs = 0;
         uint32_t msgUntilMs  = 0;
+        bool shownPositioning = false;
     };
 
     extern Idle idle;

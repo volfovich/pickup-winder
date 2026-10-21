@@ -127,7 +127,7 @@ namespace winder
             st      = State::Done;
             outcome = o;
             pending = Event::Ended;
-            if (o != Outcome::Faulted && mscntValid) mscntValid = tmc::readMscnt(&mscntEnd);
+            if (o != Outcome::Faulted && mscntValid) mscntValid = tmc::spindle.readMscnt(&mscntEnd);
         }
 
         // TeensyStep4 starts and ends a move at v^2 = 200^2 steps^2/s^2 and
@@ -197,15 +197,20 @@ namespace winder
 #endif
     }
 
-    const char* start(const Settings& s)
+    const char* canStart(const Settings& s)
     {
         if (inRun() || motor.moving()) return "run in progress - resume or finish it";
-        if (!tmc::ready()) return "driver not ready - check 24 V, then re-init";
-        tmc::Fault f = tmc::poll(nullptr); // e.g. 24 V switched off and on since the last re-init
+        if (!tmc::spindle.ready()) return "driver not ready - check 24 V, then re-init";
+        tmc::Fault f = tmc::spindle.poll(nullptr); // e.g. 24 V switched off and on since the last re-init
         if (f != tmc::Fault::None) return tmc::faultName(f);
         if (const char* err = checkTurns(s.turns)) return err;
         if (const char* err = checkRpm(s.rpm)) return err;
-        if (const char* err = checkAccel(s.accelRpmPerS)) return err;
+        return checkAccel(s.accelRpmPerS);
+    }
+
+    const char* start(const Settings& s)
+    {
+        if (const char* err = canStart(s)) return err;
 
         run         = s;
         target      = s.turns * STEPS_PER_REV;
@@ -213,7 +218,7 @@ namespace winder
         outcome     = Outcome::None;
         windingDone = 0;
 
-        mscntValid = tmc::readMscnt(&mscntStart);
+        mscntValid = tmc::spindle.readMscnt(&mscntStart);
         motor.setPosition(0); // count each run from zero (also keeps int32 far from overflow)
 #ifdef STEP_LOOPBACK_PIN
         loopbackCount = 0;
@@ -225,8 +230,8 @@ namespace winder
     const char* resume()
     {
         if (st != State::Paused) return "nothing to resume";
-        if (!tmc::ready()) return "driver not ready - check 24 V, then re-init";
-        tmc::Fault f = tmc::poll(nullptr);
+        if (!tmc::spindle.ready()) return "driver not ready - check 24 V, then re-init";
+        tmc::Fault f = tmc::spindle.poll(nullptr);
         if (f != tmc::Fault::None) return tmc::faultName(f);
         beginSegment();
         return nullptr;
@@ -318,9 +323,14 @@ namespace winder
         if (offsetSteps) *offsetSteps = 0;
         if (outcome == Outcome::Faulted) return PulseCheck::Skipped;
         if (!mscntValid) return PulseCheck::Unavailable;
+        return checkMscnt(mscntStart, mscntEnd, steps(), offsetSteps);
+    }
 
-        uint16_t moved = (mscntEnd - mscntStart) & 0x3FF;
-        uint16_t fwd   = (steps() * MSCNT_PER_STEP) & 0x3FF;
+    PulseCheck checkMscnt(uint16_t before, uint16_t after, uint32_t stepsSent, int16_t* offsetSteps)
+    {
+        if (offsetSteps) *offsetSteps = 0;
+        uint16_t moved = (after - before) & 0x3FF;
+        uint16_t fwd   = (stepsSent * MSCNT_PER_STEP) & 0x3FF;
         uint16_t rev   = (0x400 - fwd) & 0x3FF;
         if (moved == fwd || moved == rev) return PulseCheck::Ok;
 

@@ -72,8 +72,8 @@ namespace ui::screens
             return;
         }
 
-        snprintf(t, sizeof(t), "v0x%02X  %s", s.version, tmc::ready() ? "configured" : "NOT CONFIGURED");
-        drawLine(0, t, tmc::ready() ? theme::OK : theme::WARN);
+        snprintf(t, sizeof(t), "v0x%02X  %s", s.version, tmc::spindle.ready() ? "configured" : "NOT CONFIGURED");
+        drawLine(0, t, tmc::spindle.ready() ? theme::OK : theme::WARN);
 
         snprintf(t, sizeof(t), "%s, %u microsteps", s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps);
         drawLine(1, t, s.spreadCycle ? theme::FG : theme::ERR);
@@ -123,7 +123,7 @@ namespace ui::screens
             refreshNow   = false;
             cycleStartMs = millis();
         }
-        if (!tmc::readStatus(&reading, part))
+        if (!tmc::spindle.readStatus(&reading, part))
         {
             part = 0;
             drawStatus(false);

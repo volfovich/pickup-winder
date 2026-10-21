@@ -2,6 +2,7 @@
 #include "app.h"
 #include "config.h"
 #include "tmc_driver.h"
+#include "traverse.h"
 #include "ui/ui.h"
 #include "winder.h"
 
@@ -25,11 +26,21 @@ namespace
             "  accel N      ramp up/down rate in RPM/s\n", MAX_TURNS, MIN_RPM, MAX_RPM);
         Serial.println(
             "  dir cw|ccw   winding direction\n"
-            "  start        start winding\n"
-            "  release      disable the driver (motor free)\n"
+            "  current N    spindle run current, mA RMS (heat grows with its square)\n"
+            "  start        start winding (with the traverse: goes to the start position first)\n"
+            "  release      disable both drivers (motors free)\n"
             "  init         re-run TMC2209 configuration\n"
+            "Traverse (only while idle; lengths in mm):\n"
+            "  traverse on|off   use the wire guide for winding\n"
+            "  home              find the home switch (motor end = 0 mm)\n"
+            "  jog MM / goto MM  move the guide (e.g. jog -0.5, goto 12)\n"
+            "  wire MM           wire diameter incl. insulation (e.g. 0.071)\n"
+            "  width MM          winding width between the flanges\n"
+            "  offset MM         near flange of the winding, from home\n"
+            "  layer away|toward first layer direction\n"
+            "  endstop           home switch state\n"
             "While winding / paused:\n"
-            "  stop         ramped stop -> paused (count stays exact)\n"
+            "  stop         ramped stop -> paused (count stays exact; also stops the traverse)\n"
             "  estop        immediate stop -> paused\n"
             "  resume       wind the remaining turns\n"
             "  finish       end a paused run early\n"
@@ -45,22 +56,87 @@ namespace
     {
         const winder::Settings& s = app::settings();
         uint32_t accelSec         = (s.rpm * 10 + s.accelRpmPerS / 2) / s.accelRpmPerS;
-        Serial.printf("turns %lu  rpm %lu (actual %.1f)  accel %lu RPM/s (0->max in %lu.%lu s)  dir %s\n", s.turns,
-                      s.rpm, winder::actualRpm(s.rpm), s.accelRpmPerS, accelSec / 10, accelSec % 10,
-                      s.dir == winder::Dir::CW ? "cw" : "ccw");
+        Serial.printf("turns %lu  rpm %lu (actual %.1f)  accel %lu RPM/s (0->max in %lu.%lu s)  dir %s  current %u mA\n",
+                      s.turns, s.rpm, winder::actualRpm(s.rpm), s.accelRpmPerS, accelSec / 10, accelSec % 10,
+                      s.dir == winder::Dir::CW ? "cw" : "ccw", app::spindleCurrent());
+    }
+
+    // "12.345" for a value in um
+    const char* fmtMm(int32_t um, char* buf, size_t size)
+    {
+        snprintf(buf, size, "%s%ld.%03ld", um < 0 ? "-" : "", labs(um) / 1000, labs(um) % 1000);
+        return buf;
+    }
+
+    void printTraverseSettings()
+    {
+        const app::TraverseSettings& t = app::traverseSettings();
+        char a[16], b[16], c[16];
+        Serial.printf("traverse %s  wire %s  width %s  offset %s  first layer %s", t.on ? "ON" : "off",
+                      fmtMm(t.wireUm, a, sizeof(a)), fmtMm(t.widthUm, b, sizeof(b)), fmtMm(t.offsetUm, c, sizeof(c)),
+                      t.firstAway ? "away" : "toward");
+        if (t.widthUm >= t.wireUm)
+            Serial.printf("  (%lu turns/layer, %s mm)", t.widthUm / t.wireUm,
+                          fmtMm(t.widthUm / t.wireUm * t.wireUm, a, sizeof(a)));
+        Serial.println();
+        if (const char* err = app::checkTraverse()) Serial.printf("  WARNING: %s\n", err);
+    }
+
+    void printTraverseState()
+    {
+        char a[16];
+        Serial.printf("traverse driver %s, %s, %s, endstop %s\n",
+                      tmc::traverse.ready() ? "ready" : "not found (address 1)",
+                      traverse::driverEnabled() ? "enabled" : "disabled",
+                      traverse::homed() ? "homed" : "NOT HOMED", traverse::endstopTriggered() ? "PRESSED" : "open");
+        Serial.printf("  guide at %s mm%s\n", fmtMm(lroundf(traverse::positionMm() * 1000), a, sizeof(a)),
+                      traverse::homed() ? "" : " (relative, not homed)");
     }
 
     void printStatus()
     {
         printSettings();
-        Serial.printf("driver %s, %s\n", tmc::ready() ? "ready" : "NOT CONFIGURED",
-                      winder::driverEnabled() ? "enabled" : "disabled");
+        printTraverseSettings();
+        Serial.printf("driver %s, spindle: %s\n", tmc::spindle.ready() ? "ready" : "NOT CONFIGURED",
+                      winder::driverEnabled() ? "holding" : "motor free");
+        printTraverseState();
+        if (app::positioning()) Serial.println("MOVING TO THE START POSITION");
         if (winder::inRun())
+        {
             Serial.printf("%s  turns %.2f / %lu  steps %lu / %lu\n", winder::isMoving() ? "RUNNING" : "PAUSED",
                           winder::turnsDone(), winder::targetSteps() / STEPS_PER_REV, winder::stepsDone(),
                           winder::targetSteps());
+            if (app::traverseRun())
+            {
+                const traverse_math::Pattern& p = app::runPattern();
+                uint32_t layers = (winder::targetSteps() / STEPS_PER_REV + p.turnsPerLayer - 1) / p.turnsPerLayer;
+                Serial.printf("  layer %lu / %lu  guide max lag %ld steps\n",
+                              traverse_math::layerOf(p, winder::stepsDone()) + 1, layers, traverse::maxFollowError());
+            }
+        }
         else if (winder::lastOutcome() != winder::Outcome::None)
             winder::printSummary();
+    }
+
+    // "12.5", "-0.071", "3" (mm) -> um
+    bool parseMm(const char* arg, int32_t& um)
+    {
+        if (!arg || !*arg) return false;
+        bool neg = *arg == '-';
+        if (*arg == '-' || *arg == '+') arg++;
+        int32_t whole = 0, frac = 0, scale = 1000;
+        bool digits = false;
+        for (; isdigit(*arg); arg++, digits = true)
+        {
+            whole = whole * 10 + (*arg - '0');
+            if (whole > 1000) return false;
+        }
+        if (*arg == '.')
+            for (arg++; isdigit(*arg); arg++, digits = true)
+                if (scale > 1) frac += (*arg - '0') * (scale /= 10);
+        if (*arg || !digits) return false;
+        um = (neg ? -1 : 1) * (whole * 1000 + frac);
+        return true;
     }
 
     bool parseUint(const char* arg, uint32_t& out)
@@ -89,6 +165,15 @@ namespace
         if (report(setter(v)) || !winder::inRun()) printSettings();
     }
 
+    // Runs a traverse setter with a length in mm, then shows the settings
+    void setLength(const char* (*setter)(uint32_t), const char* arg)
+    {
+        int32_t um;
+        if (!parseMm(arg, um) || um < 0) Serial.println("ERR: give a length in mm, e.g. 0.071");
+        else report(setter(um));
+        printTraverseSettings();
+    }
+
     void handleCommand(char* cmd)
     {
         char* arg = strchr(cmd, ' ');
@@ -107,7 +192,11 @@ namespace
         else if (!strcmp(cmd, "resume")) report(app::resume());
         else if (!strcmp(cmd, "finish")) report(app::finish());
         else if (!strcmp(cmd, "status")) printStatus();
-        else if (!strcmp(cmd, "drv")) tmc::printStatus();
+        else if (!strcmp(cmd, "drv"))
+        {
+            tmc::spindle.printStatus();
+            tmc::traverse.printStatus();
+        }
         else if (!strcmp(cmd, "help")) printHelp();
         else if (!strcmp(cmd, "calibrate"))
         {
@@ -117,6 +206,7 @@ namespace
         else if (!strcmp(cmd, "turns")) setNumber(app::setTurns, arg);
         else if (!strcmp(cmd, "rpm")) setNumber(app::setRpm, arg);
         else if (!strcmp(cmd, "accel")) setNumber(app::setAccel, arg);
+        else if (!strcmp(cmd, "current")) setNumber(app::setCurrent, arg);
         else if (!strcmp(cmd, "dir"))
         {
             if (arg && !strcmp(arg, "cw")) report(app::setDir(winder::Dir::CW));
@@ -134,6 +224,38 @@ namespace
             if (report(app::release())) Serial.println("driver disabled");
         }
         else if (!strcmp(cmd, "init")) report(app::reinitDriver());
+        else if (!strcmp(cmd, "traverse"))
+        {
+            if (arg && !strcmp(arg, "on")) report(app::setTraverseOn(true));
+            else if (arg && !strcmp(arg, "off")) report(app::setTraverseOn(false));
+            else Serial.println("ERR: traverse on|off");
+            printTraverseSettings();
+        }
+        else if (!strcmp(cmd, "wire")) setLength(app::setWire, arg);
+        else if (!strcmp(cmd, "width")) setLength(app::setWidth, arg);
+        else if (!strcmp(cmd, "offset")) setLength(app::setOffset, arg);
+        else if (!strcmp(cmd, "layer"))
+        {
+            if (arg && !strcmp(arg, "away")) report(app::setFirstAway(true));
+            else if (arg && !strcmp(arg, "toward")) report(app::setFirstAway(false));
+            else Serial.println("ERR: layer away|toward");
+            printTraverseSettings();
+        }
+        else if (!strcmp(cmd, "home"))
+        {
+            if (report(app::home())) Serial.println("homing...");
+        }
+        else if (!strcmp(cmd, "jog") || !strcmp(cmd, "goto"))
+        {
+            int32_t um;
+            if (!parseMm(arg, um)) Serial.printf("ERR: %s MM, e.g. %s\n", cmd, *cmd == 'j' ? "jog -0.5" : "goto 12");
+            else report(*cmd == 'j' ? app::jog(um) : app::moveTo(um));
+        }
+        else if (!strcmp(cmd, "endstop"))
+        {
+            Serial.printf("endstop pin %u reads %s -> %s\n", PIN_ENDSTOP, digitalRead(PIN_ENDSTOP) ? "HIGH" : "LOW",
+                          traverse::endstopTriggered() ? "PRESSED" : "open");
+        }
         else if (*cmd) Serial.printf("ERR: unknown command '%s' (try 'help')\n", cmd);
     }
 
@@ -176,10 +298,47 @@ namespace
     }
 }
 
+namespace
+{
+    void printTraverseSummary()
+    {
+        int16_t off;
+        switch (app::traversePulseCheck(&off))
+        {
+            case winder::PulseCheck::Ok: Serial.println("  traverse pulse check: OK"); break;
+            case winder::PulseCheck::Mismatch:
+                Serial.printf("  traverse pulse check: MISMATCH - driver saw %+d step(s) vs. sent (mod 64)\n", off);
+                break;
+            case winder::PulseCheck::Unavailable: Serial.println("  traverse pulse check: unavailable"); break;
+            case winder::PulseCheck::Skipped: Serial.println("  traverse pulse check: skipped (fault)"); break;
+        }
+        Serial.printf("  traverse max lag %ld step(s), now at %.3f mm\n", traverse::maxFollowError(),
+                      traverse::positionMm());
+    }
+
+    void printTraverseEvent()
+    {
+        switch (app::traverseEvent())
+        {
+            case traverse::Event::Homed:
+                Serial.printf("traverse homed, parked at %.3f mm\n", traverse::positionMm());
+                break;
+            case traverse::Event::HomingFailed: Serial.printf("HOMING FAILED: %s\n", traverse::lastError()); break;
+            case traverse::Event::MoveDone:
+                if (traverse::lastError()) Serial.printf("traverse stopped: %s\n", traverse::lastError());
+                else if (!app::positioning() && !winder::inRun())
+                    Serial.printf("traverse at %.3f mm\n", traverse::positionMm());
+                break;
+            case traverse::Event::None: break;
+        }
+    }
+}
+
 void setup()
 {
     Serial.begin(115200);
-    winder::begin(); // driver EN pin to a defined (disabled) state first
+    winder::begin();   // driver EN pins to a defined (disabled) state first
+    traverse::begin();
     ui::begin();     // splash screen, animated while we wait for USB serial
 
     uint32_t t0 = millis();
@@ -187,8 +346,10 @@ void setup()
 
     Serial.println("\n" FIRMWARE_NAME " v" FIRMWARE_VERSION);
     app::begin();
-    tmc::begin();
+    tmc::spindle.begin();
+    if (!tmc::traverse.begin(true)) Serial.println("TMC2209 traverse (address 1): not found");
     printSettings();
+    printTraverseSettings();
     Serial.println("type 'help' for commands");
     ui::markBooted();
 }
@@ -207,9 +368,11 @@ void loop()
     else if (e == winder::Event::Ended)
     {
         winder::printSummary();
+        if (app::traverseRun()) printTraverseSummary();
         if (winder::lastOutcome() == winder::Outcome::Faulted)
             Serial.println("driver disabled after fault — check hardware, then 'init'");
     }
+    printTraverseEvent();
     printProgress();
     ui::update();
 

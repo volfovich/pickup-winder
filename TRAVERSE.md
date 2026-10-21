@@ -1,0 +1,155 @@
+# Wire traverse
+
+The wire guide lays the wire in even layers across the bobbin. **Status:** firmware written and host-tested; hardware not wired yet. It is **off by default** (`traverse off`), so the machine winds exactly as before until the slide is wired and switched on.
+
+Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](README.md). Touch UI: [UI.md](UI.md).
+
+## Hardware (parts on hand)
+
+- **Motor / rail:** **28T0601-50** miniature linear actuator slide: a NEMA 11 (28 mm) stepper, T6 lead screw with **1 mm lead**, **50 mm effective stroke**, **0.6 A per phase**.
+  - At 16 microsteps: **3200 steps/mm = 0.31 µm per step**, far finer than any pickup wire.
+  - Pickup bobbins are ~7–15 mm wide, so 50 mm of travel is plenty. Soft travel limits 0–50 mm after homing.
+- **Driver:** the spare **TMC2209** (not the A4988):
+  - shares the existing UART line; **address 1** by tying its MS1 to 3.3 V (MS2 to GND);
+  - **spreadCycle**: the guide reverses at full speed at every layer end, and stealthChop copes worse with sudden speed changes. A missed traverse step would shift every later layer, so reliability wins over noise. `TRAVERSE_STEALTHCHOP` in `config.h` switches it;
+  - **400 mA RMS** (~67% of the 0.6 A rating: stays cool, plenty of force through a 1 mm screw), hold 50%;
+  - configured and verified by readback like the spindle driver.
+- **Homing:** the slide has no endstop, so it gets the **3-wire mechanical endstop module** (on hand: the common 3D-printer type with VCC / GND / SIG, a pull-up resistor and an LED). Sensorless homing doesn't suit a 1 mm lead screw: the screw's mechanical advantage hides the stall from the motor and could jam the nut.
+  - **Power it from 3.3 V, not 5 V.** Teensy 4.0 pins are not 5 V tolerant, and the module pulls SIG up to its VCC.
+  - **Home is the motor end = 0 mm.** Mount the switch so it triggers ~1 mm **before** the slide's mechanical hard stop.
+  - Wire the switch **normally closed** if the module allows: a broken wire then reads as "triggered", and homing fails safe instead of driving into the hard stop.
+  - Signal polarity differs between modules: `ENDSTOP_TRIGGERED_LEVEL` in `config.h`, checked with the `endstop` command before the first homing.
+
+### Pins (Teensy 4.0)
+
+Spindle pins unchanged: 0/1 UART, 2 STEP, 3 DIR, 4 EN (5 optional loopback).
+
+| Function | Pin |
+|---|---|
+| Traverse STEP / DIR / EN | 6 / 7 / 22 |
+| Endstop SIG (module VCC → 3.3 V, GND → GND) | 21 |
+| TFT SCK / MOSI / MISO, shared with touch T_CLK / T_DIN / T_OUT | 13 / 11 / 12 |
+| TFT CS / DC / RST | 10 / 9 / 8 |
+| Touch T_CS / T_IRQ | 14 / 15 |
+| SD card CS *(reserved: presets / logs later)* | 16 |
+| TFT LED (backlight) | **3.3 V directly**: it can draw 50–100 mA, too much for a Teensy pin |
+
+Free: 17, 18, 19, 20, 23 (no hardware buttons: the UI is touch only).
+
+The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hardware-and-wiring). The SD card socket has its own pins on the other side of the module (SD_CS → 16 when used, SD_MOSI / SD_MISO / SD_SCK → 11 / 12 / 13).
+
+### Wiring (step by step)
+
+1. **Power off** (24 V and USB).
+2. **Traverse TMC2209 address 1:** MS1 → **3.3 V**, MS2 → **GND**. On BTT-style modules these are the MS1 / MS2 pins (or solder jumpers). The spindle driver stays at MS1 = MS2 = GND (address 0).
+3. **UART:** connect the traverse driver's **PDN_UART** to the **same node** as the spindle driver's: Teensy RX1 (pin 0), and through the existing 1 kΩ to TX1 (pin 1). One line, two drivers.
+4. **Logic:** VIO → 3.3 V, GND → GND. **STEP → 6, DIR → 7, EN → 22.** **Recommended: 10 kΩ from EN to 3.3 V**, so the driver stays off while the Teensy is unpowered, booting or uploading (see README, EN pull-up).
+5. **Motor power:** VM → 24 V, GND → power GND, with a 100 µF capacitor at the driver if the module has none. **Never plug or unplug the motor with 24 V on.**
+6. **Motor:** the 28T0601-50's 4 wires → A1 A2 / B1 B2 (one coil per pair; check with an ohmmeter).
+7. **Endstop module:** VCC → **3.3 V** (not 5 V), GND → GND, SIG → **21**. Mount it at the **motor end**, triggering ~1 mm before the hard stop.
+
+### Bring-up checklist (after wiring)
+
+1. `drv`: both drivers answer; the traverse at address 1 says "configured and verified".
+2. `endstop`, then press the switch by hand and `endstop` again: it must read "open", then "PRESSED". If it's the other way round, flip `ENDSTOP_TRIGGERED_LEVEL` in `config.h`.
+3. `jog 1`: the carriage must move **away from the motor**. If it moves toward it, set `TRAVERSE_DIR_INVERT = true`.
+4. `jog 1` / `jog -1` measured with calipers: 1.00 mm each.
+5. Keep a hand near the 24 V switch: `home`. It approaches the switch, backs off, re-approaches slowly and parks at 0.5 mm. Repeat `home` 10×: the position repeats.
+6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end.
+7. Set `wire`, `width`, `offset` for a real bobbin, `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals at the flanges; both pulse checks `OK`.
+8. `stop` mid-layer, then `resume`: the guide continues exactly where it was.
+
+## How it works
+
+### The guide position is a function of the spindle's step count
+
+It is not an independently timed motion. For spindle step count `S` (3200 per turn):
+
+```
+pitch  = wire diameter incl. insulation           e.g. 0.071 mm for 42 AWG
+N      = floor(width / pitch)                      turns per layer
+layer  = S / (N · 3200)
+u      = S mod (N · 3200)                          spindle steps into this layer
+off    = u · pitch / 3200                          guide travel into this layer
+x      = start + off                               layers moving away from home
+x      = start + N · pitch − off                   layers moving toward home
+```
+
+- `start` is the near (home-side) edge of the winding, the `offset` setting. The first layer's direction is the `layer away|toward` setting.
+- `src/traverse_math.h` does this in integer maths: pitch in Q16 traverse steps per turn, 64-bit products. It has no Arduino dependencies, so the host simulation compiles the same file.
+- **Host test** (11,000 turns, 7 cases from 20 µm wire on a 48 mm bobbin to 500 µm wire with 2 turns per layer):
+  - reversals land exactly on `start` and `start + N · pitch`;
+  - the guide never needs more than 1 step per spindle step;
+  - the layer span is within 0.25 µm of N × wire.
+
+Why this design:
+- the guide follows the spindle's ramps automatically, so the wire spacing is the same at any speed;
+- after STOP / RESUME, E-STOP or a wire break, the guide is exactly where the wire belongs, because its position comes from the turn count;
+- the turn count is untouched: the spindle stays the only master;
+- scatter winding later is just a different `x(S)` function.
+
+### Step generation (`src/traverse.cpp`)
+
+- **One 40 kHz `IntervalTimer` (PIT) interrupt** makes every traverse step: at most one step per tick (12.5 mm/s). It runs at NVIC priority 32, below the spindle's TeensyStep4 timer (16), so it can never delay a spindle step, and above USB / UART.
+- Modes:
+  - **Follow** (winding): each tick reads the spindle's live step count, computes `x`, and steps toward it. 42 AWG at 1500 RPM needs ~5,700 steps/s, 14% of the tick rate.
+  - **Move** (homing, jog, go to start): a trapezoid profile in Q24 fixed point. 10 mm/s, 50 mm/s², start / end speed 0.5 mm/s.
+  - **Idle.**
+- Step pulse 200 ns (the TMC2209 needs ≥ 100 ns). After a DIR change, the step waits for the next tick.
+- **Soft limits 0…50 mm are enforced inside the interrupt** once homed. In Follow mode a limit hit aborts the run.
+- There is no TeensyStep4 change: the spindle's position counter is already readable.
+
+### Homing (toward the motor end)
+
+1. If the switch is already pressed: move 2 mm off it first. Still pressed → **"endstop stuck or wire broken"**.
+2. Fast approach at 5 mm/s until the switch triggers, checked every tick. Nothing within 52 mm → **"endstop not found"**.
+3. Back off 1 mm. Still pressed → **"endstop did not release"**.
+4. Slow approach at 0.5 mm/s → that point is **0 mm**.
+5. Park at 0.5 mm, clear of the switch.
+
+Before homing, `jog` works without limits but at most ±5 mm per command; `goto` and START need homing. Switching the traverse driver off (`release`, a re-init, a traverse fault) forgets the home position.
+
+### A run with the traverse on
+
+1. **START** checks the spindle (as without the traverse), then:
+   - the traverse driver is ready and homed;
+   - the winding fits the slide (`offset + N × wire ≤ 50 mm`);
+   - the guide speed `wire × RPM / 60` is ≤ 6 mm/s;
+   - the traverse driver has no fault.
+2. The guide **moves to the start position** `x(0)`. On the screen START becomes **CANCEL** meanwhile; serial `stop` cancels too.
+3. The **spindle starts**, then the guide switches to Follow (the spindle has made at most one step by then).
+4. Pause / resume / E-STOP need nothing extra: the guide holds while the spindle stands.
+5. The **fault watch polls the two drivers alternately**, one UART read per 100 ms tick, so the loop blocks no longer than with the spindle alone. A traverse fault or soft-limit hit aborts the run like a spindle fault.
+6. **The run summary** adds a **traverse pulse check** (MSCNT before / after against the net guide steps) and the guide's maximum lag in steps.
+
+### Settings and commands
+
+Saved in EEPROM (settings version 2; version 1 settings migrate with the traverse off):
+
+| Command | Setting | Range / default |
+|---|---|---|
+| `traverse on\|off` | use the guide for winding | off |
+| `wire MM` | wire Ø including insulation = the pitch | 0.020–0.500, default 0.071 (42 AWG) |
+| `width MM` | winding width between the flanges | 1–48, default 12 |
+| `offset MM` | near flange of the winding, from home | 0–50, default 5 |
+| `layer away\|toward` | first layer direction | away |
+
+Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `status` (homed, position, layer n / N during a run), `drv` (both drivers).
+
+## Work items
+
+- [x] `src/traverse.*`: step ISR with Move and Follow modes; homing with fail-safe checks; soft limits in the ISR
+- [x] `src/traverse_math.h`: the position function, host-tested
+- [x] `src/tmc_driver.*`: `tmc::spindle` (address 0) and `tmc::traverse` (address 1), same verification for both
+- [x] Run flow in `src/app.*`: positioning → spindle start → follow; traverse faults abort the run; alternating fault watch
+- [x] Pause / resume: done in UI-4; the guide needs nothing extra
+- [x] Settings in EEPROM, serial commands, traverse pulse check and lag in the summary
+- [ ] Hardware bring-up (checklist above)
+- [ ] UI-6: Bobbin and Jog / Home screens, layer n / N on Running (see [UI.md](UI.md))
+
+## Tests (on hardware)
+
+- [ ] Home 10× in a row: the position repeats
+- [ ] Wind without wire; measure the carriage at layer reversals (calipers / dial indicator)
+- [ ] `stop` mid-layer, then `resume`: the carriage continues from where it was
+- [ ] Count and driver pulse checks stay `OK` on both axes at 1500 RPM

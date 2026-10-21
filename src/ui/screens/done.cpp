@@ -1,4 +1,5 @@
 #include "ui/screens/done.h"
+#include "app.h"
 #include "config.h"
 #include "ui/screens/idle.h"
 #include "ui/screens/setup.h"
@@ -72,6 +73,7 @@ namespace ui::screens
 
         snprintf(line, sizeof(line), "winding time  %s", fmtDuration(winder::windingMs(), a, sizeof(a)));
         printAt(line, 16, 150, theme::FONT_BODY, theme::MUTED);
+        if (app::driverHot()) printAt("driver got hot - lower the current", 16, 169, theme::FONT_BODY, theme::WARN);
 
         group.reset();
         group.drawAll();
