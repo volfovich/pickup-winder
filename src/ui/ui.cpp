@@ -97,6 +97,11 @@ namespace ui
     {
         touch::update();
 
+        // Draw only between transfers: the DMA reads the frame buffer while
+        // it runs, and would send a number caught between being cleared and
+        // redrawn (flicker). Touch events wait in the queue meanwhile.
+        if (busBusy()) return;
+
         // Holding the screen for 3 s right after boot forces a recalibration
         if (bootHoldArmed)
         {
