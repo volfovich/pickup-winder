@@ -1,6 +1,8 @@
 # Wire traverse
 
-The wire guide lays the wire in even layers across the bobbin. **Status:** firmware written and host-tested; hardware not wired yet. It is **off by default** (`traverse off`), so the machine winds exactly as before until the slide is wired and switched on.
+The wire guide lays the wire in even layers across the bobbin.
+
+**Status:** firmware, serial commands and touch screens (Guide, Bobbin) are written. The position maths is host-tested, and the settings and refusals are checked over serial. **The hardware is not wired yet**, so homing, jogging and following are untested on the real slide. The guide is **off by default** (`traverse off`): the machine winds exactly as before until the slide is wired and switched on.
 
 Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](README.md). Touch UI: [UI.md](UI.md).
 
@@ -54,8 +56,8 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 2. `endstop`, then press the switch by hand and `endstop` again: it must read "open", then "PRESSED". If it's the other way round, flip `ENDSTOP_TRIGGERED_LEVEL` in `config.h`.
 3. `jog 1`: the carriage must move **away from the motor**. If it moves toward it, set `TRAVERSE_DIR_INVERT = true`.
 4. `jog 1` / `jog -1` measured with calipers: 1.00 mm each.
-5. Keep a hand near the 24 V switch: `home`. It approaches the switch, backs off, re-approaches slowly and parks at 0.5 mm. Repeat `home` 10×: the position repeats.
-6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end.
+5. Keep a hand near the 24 V switch: `home` (or HOME on the Guide screen). It approaches the switch, backs off, re-approaches slowly and parks at 0.5 mm. Repeat 10×: the position repeats.
+6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end. Try the jog buttons on the Guide screen.
 7. **Teach the bobbin** (see below): mount a bobbin; on the Guide screen jog until the wire meets the inside of flange 1, tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. Check with **GO TO FLANGE** (tap twice: flange 1, then flange 2) that the wire lines up with both. Set `awg`, `insulation`, `margin` on the Bobbin screen.
 8. `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals: they should stay one margin inside each flange. Both pulse checks `OK`.
 9. `stop` mid-layer, then `resume`: the guide continues exactly where it was.
@@ -71,6 +73,17 @@ The bobbin sits on its mount on the winder motor. The wire comes from the tensio
 - Teach once per bobbin type / mount setup. Redo it only if the rail, the mount or the bobbin type changes.
 
 With the **margin** kept clear inside both flanges, the guide winds from flange 1 + margin to flange 2 − margin.
+
+## On the screen
+
+Full screen descriptions: [UI.md](UI.md#bobbin).
+
+- **Guide** (Idle → GUIDE): live carriage position, jog −10 … +10 mm, **HOME** (STOP while moving), **SET FLANGE 1 / 2** to teach the bobbin, **GO TO FLANGE 1 / 2** to check it.
+- **Bobbin** (Setup → BOBBIN, or Guide → BOBBIN): guide on / off, first layer away / toward, AWG 42 / 43 / 44, single / heavy insulation, margin, inner width, the taught flanges, and the result: "0.071 mm wire: 140 turns/layer, 22 layers", or in red why it won't fit.
+- **Idle** shows the bobbin to wind ("42 AWG, 12.0 mm, 22 layers"), and **HOME GUIDE!** in orange while the guide is on but not homed.
+- **START** with the guide on first moves the guide to the start position (START becomes CANCEL), then starts the spindle.
+- **Running** shows **layer n / N**; **Done** shows the spindle and guide pulse checks.
+- **Diagnostics** (Setup → DIAGNOSTICS) shows the guide driver, homed state, position and the endstop; **GUIDE** opens the guide driver's registers.
 
 ## How it works
 
@@ -130,10 +143,10 @@ Before homing, `jog` works without limits but at most ±5 mm per command; `goto`
    - there is room between the margins, and the bobbin is on the slide (`flange + width ≤ 50 mm`);
    - the guide speed `wire × RPM / 60` is ≤ 6 mm/s;
    - the traverse driver has no fault.
-2. The guide **moves to the start position** `x(0)`. On the screen START becomes **CANCEL** meanwhile; serial `stop` cancels too.
+2. The guide **moves to the start position** `x(0)`: flange 1 + margin when the first layer moves away from home, otherwise the far end of the winding area (flange 1 + margin + turns per layer × wire, at most flange 2 − margin). On the screen START becomes **CANCEL** meanwhile; serial `stop` cancels too.
 3. The **spindle starts**, then the guide switches to Follow (the spindle has made at most one step by then).
 4. Pause / resume / E-STOP need nothing extra: the guide holds while the spindle stands.
-5. The **fault watch polls the two drivers alternately**, one UART read per 100 ms tick, so the loop blocks no longer than with the spindle alone. A traverse fault or soft-limit hit aborts the run like a spindle fault.
+5. The **fault watch polls the two drivers alternately**, one driver (GSTAT + DRV_STATUS) per 100 ms tick, so the loop blocks no longer than with the spindle alone. A traverse fault or soft-limit hit aborts the run like a spindle fault; the Fault screen names it ("traverse: ...").
 6. **The run summary** adds a **traverse pulse check** (MSCNT before / after against the net guide steps) and the guide's maximum lag in steps.
 
 ### Settings and commands
@@ -164,7 +177,8 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 - [x] Pause / resume: done in UI-4; the guide needs nothing extra
 - [x] Settings in EEPROM, serial commands, traverse pulse check and lag in the summary
 - [ ] Hardware bring-up (checklist above)
-- [x] UI-6: Bobbin and Guide screens, layer n / N on Running, guide pulse check on Done (see [UI.md](UI.md)); tested on hardware only once the guide is wired
+- [x] UI-6: Guide, Bobbin and Diagnostics screens, flange teaching, layer n / N on Running, guide pulse check on Done (see [UI.md](UI.md))
+- [ ] EN pull-ups (10 kΩ to 3.3 V) on both drivers
 
 ## Tests (on hardware)
 

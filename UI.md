@@ -1,16 +1,16 @@
-# Touch UI plan
+# Touch UI
 
-A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
+The winder's front panel: a 2.8" ILI9341 display with HR2046 resistive touch. **Touch only: no hardware buttons.** The USB serial console works alongside it.
 
-Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). **UI-6 (traverse screens) written**; it can only be fully tested once the guide is wired ([TRAVERSE.md](TRAVERSE.md)). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+**Status: UI-1 to UI-6 done.** UI-1 … UI-5 are tested on hardware. The UI-6 guide screens work, but homing, flange teaching and layer display can only be fully tested once the guide is wired ([TRAVERSE.md](TRAVERSE.md)). Overall roadmap: [TBD.md](TBD.md). Firmware overview: [README.md](README.md).
 
 ## 1. Goals and constraints
 
 - **Touch only**, landscape **320 × 240**, resistive touch (finger or fingernail, works with wire in hand).
-- **Big targets:** at least 60 × 48 px; STOP is far larger than anything else.
-- **One brain:** the UI and the serial console drive the same app API, so they can never disagree. Either can be used at any time.
-- **Settings are locked while winding**, the same rule as the serial console today.
-- **The UI must never affect the count.** Steps come from timer interrupts (TeensyStep4, TMR4, priority 16). The UI only runs in `loop()`, beside the 100 ms driver fault poll.
+- **Big targets:** at least ~48 px; STOP is far larger than anything else.
+- **One brain:** the UI and the serial console drive the same `app` layer, so they can never disagree. Either can be used at any time.
+- **Settings are locked during a run** (running or paused).
+- **The UI must never affect the count.** Spindle steps come from a timer interrupt (TeensyStep4, TMR4, priority 16), guide steps from another (PIT, priority 32). The UI only runs in `loop()`.
 
 ## 2. Hardware and wiring
 
@@ -31,158 +31,164 @@ Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer
 | GND | GND | |
 | VCC | 3.3 V | |
 
-> Check this against the real wiring during bring-up (UI-1). The test screen prints raw touch values, which shows quickly whether touch and display are both working.
+Orientation: landscape with the module's **pin header on the left** (`DISPLAY_ROTATION` in `config.h`; touch calibration handles the touch axes).
 
 **Libraries:**
 - `ILI9341_t3n` (KurtE, pinned in `platformio.ini`): display driver with a **frame buffer and DMA**, plus its own Arial / Arial Bold fonts in 8–96 pt. The bundled `ILI9341_t3` is excluded with `lib_ignore`, because its font files have the same names.
 - `XPT2046_Touchscreen` (bundled): works with the HR2046 (an XPT2046 clone).
 - `EEPROM` (bundled): settings and touch calibration.
 
-**SPI sharing:** the display runs at 30 MHz and touch at 2 MHz on the same bus. **Touch is not sampled while a frame is being sent by DMA**: `touch::begin()` takes a "bus busy" check. The UART to the TMC2209 is a separate peripheral and is unaffected.
+**SPI sharing:** the display runs at 30 MHz and touch at 2 MHz on the same bus. **Touch is not sampled while a frame is being sent by DMA** (`touch::begin()` takes a "bus busy" check). The UART to the TMC2209s is a separate peripheral and is unaffected.
 
 ## 3. Safety without hardware buttons
 
-The decision is no physical buttons. These are the mitigations:
-
-1. **STOP is always on screen** during a run, and it's the biggest target (the bottom half of the screen).
-2. **Tap STOP once** = ramped stop (the count stays exact). **Tap again while it ramps down** = immediate stop.
-3. **Touch is checked on every loop pass**, even in the middle of a redraw. Redraws are split into chunks of 5 ms or less, so a tap is never missed.
+1. **STOP is always on screen while the motor turns**, as the biggest target (the bottom of the screen). Whatever starts a run (screen or serial), the Running screen comes up.
+2. **STOP reacts on touch-down.** First tap = ramped stop; a second tap while it slows = stop on the next step. Either way the run **pauses** with the count exact.
+3. **Touch is sampled on every loop pass** (~100 Hz) except while a frame is on the bus (≤ 41 ms, at most 10 times a second).
 4. **A frozen UI can't over-wind.** TeensyStep4 stops on the exact target step by itself, without the main loop.
 5. **Serial `stop` / `estop` keep working** in parallel.
-6. **The 24 V power switch is the emergency off.** Keep it within reach of where you sit.
-7. **Recommended hardware tweak:** a **10 kΩ pull-up from each driver's EN pin to 3.3 V**. While the Teensy resets, boots or is being flashed, its pins float. The pull-up keeps both drivers disabled until the firmware enables them.
+6. **The 24 V power switch is the emergency off.** Keep it within reach.
+7. **Recommended:** a **10 kΩ pull-up from each driver's EN pin to 3.3 V**. While the Teensy is unpowered, resets, boots or is being flashed, its pins float; the pull-up keeps the drivers off until the firmware takes over.
 
 ## 4. Architecture
 
 ```
 src/
-  app.h / app.cpp          settings + actions, shared by serial and UI
-  main.cpp                 setup/loop, serial console (calls app)
+  app.h / app.cpp          settings (EEPROM), actions, fault watch, run flow: shared by serial and UI
+  main.cpp                 setup / loop, serial console (calls app)
   ui/
-    ui.h / ui.cpp          screen manager: current screen, switching, loop hook
-    touch.h / touch.cpp    calibration, debounce, tap / long-press events
-    widgets.h / .cpp       Button, ValueField, ProgressBar, Keypad, StatusBar
+    ui.h / ui.cpp          frame buffer, screen manager, follows the run state, boot hold, loop stats
+    touch.h / touch.cpp    sampling, debounce, tap / long-press events, calibration maths
+    affine.h               3-point affine calibration solve
+    widgets.h / .cpp       Button + ButtonGroup, status bar, text fitting, messages, turn counter, progress bar
     theme.h                colours, fonts, sizes
-    screens/               one class per screen
-      idle.cpp  setup.cpp  keypad.cpp  running.cpp  paused.cpp
-      done.cpp  fault.cpp  driver.cpp  calibrate.cpp
+    screens/               one class per screen:
+      splash  idle  setup  keypad  bobbin  guide  running  paused  done  fault
+      diagnostics  driver  touch_test  calibrate
 ```
 
-### `app`: the shared layer (refactor out of `main.cpp`)
-- It holds the **settings struct**: turns, rpm, accel, direction, spindle current, and the guide settings (AWG, insulation, bobbin width, margin, flange). Settings are **saved in EEPROM** with a version number and checksum. If the data is invalid, it falls back to the defaults in `config.h`.
-- **Actions:** `setTurns`, `setRpm`, `setAccel`, `setDir`, `start`, `stop`, `resume`, `finish`, `reinitDriver`, `release`.
-- Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 10..1500"` or `"accel 327..423 not supported"`. Serial prints that text and the UI shows it.
-- The serial console's behaviour doesn't change.
+### `app`: the shared layer
+- **Settings:** turns, RPM, accel, direction, spindle current, and the guide settings (on/off, AWG, insulation, inner width, margin, flanges, first layer). **Saved in EEPROM** with a version number and checksum (version 3; older versions migrate). Invalid data falls back to the defaults in `config.h`.
+- **Actions:** setters, `start` / `stop` / `estop` / `resume` / `finish`, `home` / `jog` / `moveTo`, `setFlange1Here` / `setFlange2Here`, `release`, `reinitDriver`.
+- Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 10..1500"`. Serial prints it, the UI shows it.
 
-### Rendering (decided in UI-3: frame buffer + DMA)
+### Screen manager
+- **The run state drives the screen:** whatever starts, pauses or ends a run (a tap, serial, a fault), the matching screen comes up: Running, Paused, Done or Fault.
+- Each screen has `enter()` (draw everything), `update()` (redraw what changed, every loop pass) and `onTouch()`.
+
+### Rendering (frame buffer + DMA)
 - **All drawing goes into a RAM frame buffer** (320×240×2 = 150 KB, allocated from RAM2 at boot). This takes microseconds, and nothing half-drawn is ever visible, so there's **no flicker**.
-- **`ui::tft()` marks the frame dirty.** The screen manager sends a dirty frame to the display by **async DMA**, at most **10 frames/s**.
-  - A full transfer takes about 41 ms at 30 MHz SPI, so 10 fps leaves the bus free for touch about 60% of the time.
-  - A screen change is just a RAM clear plus redraw (about 1 ms).
-- **Still redraw only what changed:** it keeps frames rare, so the bus stays free for touch.
-- **Fixed field boxes**: numbers are right-aligned in a box of fixed width, so the layout never shifts.
-- Loop budget: **5 ms or less per pass** for UI work, measured on the touch test screen.
-- **Measured:**
-  - UI-1, drawing directly to the display: 12.3 ms, then 2.3 ms after redrawing only the changed boxes.
-  - UI-3, frame buffer: **0.4 ms**.
-- Why the frame buffer: at 30 MHz the display fills only about 1.9 Mpx/s, so 5 ms is about 9,000 pixels. A 60 pt turn counter alone is about 10,000 pixels, so direct drawing would have flickered and broken the budget.
+- **`ui::tft()` marks the frame dirty.** The screen manager sends a dirty frame to the display by **async DMA**, at most **10 frames/s**. A full transfer takes about 41 ms at 30 MHz SPI; a screen change is a RAM clear plus redraw (about 1 ms).
+- **Only what changed is redrawn**, which keeps frames rare and the bus free for touch.
+- **Fixed field boxes:** numbers are right-aligned in boxes of fixed width, so the layout never shifts.
+- **Measured loop time:** 12.3 ms drawing directly (UI-1), 2.3 ms redrawing only changed boxes, **0.4 ms** with the frame buffer (UI-3). Budget: 5 ms per pass.
+- Why the frame buffer: at 30 MHz the display fills only about 1.9 Mpx/s, so 5 ms is about 9,000 pixels. A 60 pt turn counter alone is about 10,000 pixels.
 
 ### Text fitting
-- **Text wrap is off** (`setTextWrap(false)`). The library default wraps a too-wide string to x = 0 one line down, right over the next element. Now too-wide text is clipped at the screen edge, and `printAt` logs `UI: text too wide: "..."` to serial.
+- **Text wrap is off** (`setTextWrap(false)`). The library default wraps a too-wide string to x = 0 one line down, right over the next element. Too-wide text is now clipped at the screen edge, and `printAt` logs `UI: text too wide: "..."` to serial.
 - The t3n fonts are bigger than their names suggest. Measured: Arial 12 has a 12 px cap height, 18 px line spacing and ink to +15; Arial 16 Bold has 16 / 23 / +20; the 60 pt comma reaches +74.
-- Buttons fit their label down a font ladder (16B → 14B → 12) and accept a two-line label (`"\n"`). Messages use one shared helper: 12 on one line, else 11, else 11 on two lines where there is room.
-- The turn counter uses 60 pt up to 9,999 turns and 48 pt for 5-digit targets. The choice follows the target, so it never changes mid-run.
-- Every fixed string and the worst-case dynamic ones (11,000 turns, `MISMATCH (+512)`, all fault texts) were measured against the real font data on the host.
+- **Shrink to fit keeps the weight:** bold text (buttons, values) steps down 16 → 14 → 13 → 12 → 11 → 10 Bold; regular text 14 → … → 10. Buttons also take a two-line label (`"\n"`).
+- **Messages** use one helper: 12 pt on one line, else 11, else 11 on two lines where there is room.
+- **Turn counter:** 60 pt up to 9,999 turns, 48 pt for 5-digit targets. The choice follows the target, so it never changes mid-run.
+- Every fixed string and the worst-case dynamic ones were measured against the real font data on the host.
 
 ### Touch handling
-- `T_IRQ` gives a quick "touched?" check; the coordinates are only read while touched.
-- A pressure threshold and 2 matching samples in a row filter out resistive-panel noise.
-- Events: **tap** (finger lifted inside the same button), and **long-press** (held 1 s, used for the calibration entry).
-- Raw readings are mapped to screen pixels with the **stored calibration** (see Calibration below).
+- `T_IRQ` gives a quick "touched?" check; coordinates are only read while touched.
+- Sampled at ~100 Hz; a pressure threshold and 2 matching samples in a row filter out resistive-panel noise.
+- Events: **down**, **up** and **long-press** (1 s). Buttons highlight on down and act when the finger lifts inside them (sliding off cancels); STOP acts on down.
+- Raw readings are mapped to screen pixels with the **stored calibration**.
 
 ## 5. Screens
 
-Mockups are 320 × 240 landscape. `[ ... ]` is a button. Every screen has a **status bar** at the top: title, driver state (● ready / ○ not ready / ✖ fault) and an over-temperature warning.
+Mockups are 320 × 240 landscape; `[ ... ]` is a button. Every screen has a **status bar**: the title on the left, the machine state on the right:
+
+| State | Text |
+|---|---|
+| idle, spindle off | **ready - motor free** (green) |
+| idle, spindle holding (2 min after a run) | **ready - holding** |
+| driver not configured | **driver not ready** (red) |
+| winding | **winding** (orange), **winding - HOT** (red) after the driver's over-temperature pre-warning |
+| paused | **paused** (orange) |
 
 ### Splash (boot)
-"Pickup Winder **NG**" with "version 1.0" (`FIRMWARE_NAME` / `FIRMWARE_VERSION` in `config.h`), and a pickup bobbin whose coil winds itself up in 1.5 s.
+"Pickup Winder **NG**" with "version 1.0", and a pickup bobbin whose coil winds itself up in 1.5 s.
 - The bottom line shows "driver ready" or "driver not ready - check 24 V" once start-up is done.
-- It also covers the up-to-3 s wait for USB serial, so the screen is never blank at power-up.
+- It covers the up-to-3 s wait for USB serial, so the screen is never blank at power-up.
 - After 2.5 s, or on a tap, it goes to Idle, or to touch calibration on first boot.
 - Holding the screen shows "keep holding to recalibrate touch"; at 3 s, calibration starts.
 
 ### Idle (home)
 ```
 +--------------------------------------------------+
-| IDLE                         ● ready - motor free|
+| IDLE                         ready - motor free  |
 +--------------------------------------------------+
 |  Turns      8,000               Dir  CW          |
 |  RPM        1500   (actual 1489.7)               |
 |  Bobbin     42 AWG, 12.0 mm, 22 layers           |
-|                                                  |
 |  +--------------------------------------------+  |
-|  |                 S T A R T                  |  |
+|  |                  START                     |  |
 |  +--------------------------------------------+  |
-|  [      SETUP      ]       [      GUIDE      ]   |
+|  [       SETUP       ]   [       GUIDE       ]   |
 +--------------------------------------------------+
 ```
-- **Bobbin** shows what will be wound: AWG (" H" for heavy insulation), the bobbin's inner width and the number of layers, or "guide off - by hand". Accel is in Setup only; the driver screens are in Setup → Diagnostics.
+- **Bobbin** shows what will be wound: AWG (" H" for heavy insulation), inner width and layers, or "guide off - by hand".
+- If START can't start, the reason shows in red above it for 5 s.
+- With the guide on, START first moves the guide to the start position: START turns into **CANCEL** and "moving the guide to the start position..." shows.
+- **GUIDE** turns orange as **HOME GUIDE!** while the guide is on but not homed (START would refuse).
 
 ### Setup
-Tap a value to edit it with the keypad. Direction toggles on tap.
+Tap a value to edit it with the keypad; Direction toggles on tap. Locked (grey) during a run.
 ```
 +--------------------------------------------------+
-| SETUP                        ● driver ready      |
+| SETUP                        ready - motor free  |
 +--------------------------------------------------+
-|  [ Turns            8000 ]                       |
-|  [ RPM              1500 ]                       |
-|  [ Accel (RPM/s)     600 ]                       |
-|  [ Direction          CW ]                       |
+|  [ Turns                               8000 ]    |
+|  [ RPM                                 1500 ]    |
+|  [ Accel (RPM/s)                        600 ]    |
+|  [ Direction                             CW ]    |
 |                                                  |
-|  [ BACK ] [ BOBBIN ] [    DIAGNOSTICS     ]      |
+|  [ BACK ] [ BOBBIN ] [     DIAGNOSTICS     ]     |
 +--------------------------------------------------+
 ```
 
 ### Keypad
-Shows the allowed range. On OK, the value goes through `app` validation; an error is shown in red and the keypad stays open.
+The title and allowed range are in the status bar. On OK, the value goes through `app` validation; an error shows in red and the keypad stays open. The first digit replaces the shown value; no leading zeros.
 ```
 +--------------------------------------------------+
-| RPM   (10 .. 1500)                               |
-|   [            1500 ]                            |
-|   [ 7 ] [ 8 ] [ 9 ]   [  ⌫  ]                    |
-|   [ 4 ] [ 5 ] [ 6 ]   [  .  ]                    |
-|   [ 1 ] [ 2 ] [ 3 ]   [CANCEL]                   |
-|   [     0     ]       [  OK  ]                   |
+| RPM                                  10 .. 1500  |
++--------------------------------------------------+
+| [         1500 ]   [ 7 ] [ 8 ] [ 9 ]             |
+|  (error text)      [ 4 ] [ 5 ] [ 6 ]             |
+| [    CANCEL    ]   [ 1 ] [ 2 ] [ 3 ]             |
+| [      OK      ]   [ . ] [ 0 ] [DEL]             |
 +--------------------------------------------------+
 ```
-The `.` key is enabled only for lengths in mm (bobbin width, margin, flange), with one decimal (0.1 mm).
+The `.` key is enabled only for lengths in mm (inner width, margin), with one decimal (0.1 mm).
 
 ### Running
 ```
 +--------------------------------------------------+
-| WINDING                      ● 1489.7 rpm        |
+| WINDING                      winding             |
 +--------------------------------------------------+
-|            4,512  / 8,000                        |
+|        4,512  / 8,000                            |
 |  [##########################..................]  |
-|  elapsed 3:02        ETA 2:21                    |
+|  1489.7 rpm        3:02          left 2:21       |
 |  +--------------------------------------------+  |
-|  |                                            |  |
-|  |                  S T O P                   |  |
-|  |                                            |  |
+|  |                   STOP                     |  |
 |  +--------------------------------------------+  |
 +--------------------------------------------------+
 ```
-- The counter is in **Arial 60 Bold**, the largest that fits "10,999 / 11,000"; it can drop to 48 pt if needed.
-- After the first tap, STOP turns orange and reads **"STOPPING — TAP AGAIN = STOP NOW"**.
+- The info line shows the measured RPM, the elapsed winding time (**layer n / N** instead when the guide is used) and the time left.
+- After the first tap, STOP turns orange and reads **"STOPPING... / TAP AGAIN TO STOP NOW"**.
 
 ### Paused (after STOP)
 ```
 +--------------------------------------------------+
-| PAUSED                       ● driver ready      |
+| PAUSED                       paused              |
 +--------------------------------------------------+
-|            4,537  / 8,000                        |
+|        4,537  / 8,000                            |
 |  [##########################..................]  |
-|                                                  |
+|        4537.25 turns done, 3,463 to go           |
 |  +---------------------+  +---------------------+|
 |  |       RESUME        |  |       FINISH        ||
 |  +---------------------+  +---------------------+|
@@ -194,41 +200,29 @@ The `.` key is enabled only for lengths in mm (bobbin width, margin, flange), wi
 ### Done
 ```
 +--------------------------------------------------+
-| DONE                         ● driver ready      |
+| DONE                         ready - holding     |
 +--------------------------------------------------+
-|   ✔ OK          8,000 turns                      |
-|   steps 25,600,000 / 25,600,000                  |
+|                   COMPLETE                       |
+|   turns  8,000 / 8,000                           |
+|   steps  25,600,000                              |
 |   driver pulse check  OK                         |
-|   time 5:24                                      |
-|  [      OK       ]           [    SETUP    ]     |
+|   winding time  5:24                             |
+|  [        OK        ]   [       SETUP       ]    |
 +--------------------------------------------------+
 ```
-**OK** returns to Idle, where START begins the next run. It doesn't restart straight away, because the bobbin usually needs changing first, and a spindle that starts from a single tap on this screen would be easy to set off by accident.
+- The headline is **COMPLETE**, **ENDED EARLY** (FINISH) or **COUNT MISMATCH**.
+- With the guide, the steps line is replaced by **spindle pulse check** and **guide pulse check**.
+- After an over-temperature pre-warning: "driver got hot - lower the current".
+- **OK** returns to Idle, where START begins the next run. It doesn't restart straight away, because the bobbin usually needs changing first, and a spindle that starts from a single tap here would be easy to set off by accident.
 
 ### Fault
-A red screen with the fault name (e.g. "driver over-temperature" or "UART not responding"), **"count unreliable"**, and the turns done when it happened. Buttons: **[RE-INIT DRIVER]** and **[OK]** (back to Idle). The driver is already disabled at this point, as in step 1.
+A red status bar, the fault (e.g. "driver over-temperature", "UART not responding (motor power lost?)", "traverse: short to ground"), **"count unreliable"**, and the turns done when it happened. The faulty driver is already disabled. Buttons: **RE-INIT DRIVER** and **OK** (to Idle).
 
-### Driver
-Live TMC2209 status, the same data as the serial `drv` command, refreshed twice a second:
-- version and whether the driver is configured;
-- spreadCycle (red if not), microsteps, chopper settings;
-- run / hold current as set, and the current used right now (`cs_actual`);
-- motor enabled or free (the driver's EN input), temperature band (`t120`…`t157`, `otpw`, `ot`);
-- faults: shorts, GSTAT reset / undervoltage / drv_err; MSCNT.
-
-Open-load flags are not shown: the datasheet says they are often set falsely at standstill.
-
-Each UART read takes about 5 ms (TMCStepper waits 2 ms before and after the reply), so the screen reads **one register per loop pass** instead of all six at once. Reads pause while the motor turns; the fault watch owns the UART then.
-
-Opened from Diagnostics for one driver (spindle or guide); the first line names it. Buttons: **[RE-INIT DRIVER]** and **[BACK]** (to Diagnostics). A failed re-init shows on the first line ("no response" or "NOT CONFIGURED").
-
-START also checks the driver before a run, as RESUME already did. So a driver that lost its configuration (e.g. 24 V switched off and on while idle) refuses the run with "driver was reset" instead of faulting 100 ms into it.
-
-### Bobbin (UI-6)
-Wire guide settings, from **Setup → BOBBIN** or **Guide → BOBBIN**. Locked during a run.
+### Bobbin
+The guide settings, from **Setup → BOBBIN** or **Guide → BOBBIN**. Locked during a run.
 ```
 +--------------------------------------------------+
-| BOBBIN                       ● ready - motor free|
+| BOBBIN                       ready - motor free  |
 +--------------------------------------------------+
 | [ Guide        ON ]   [ First       away ]       |
 | [ AWG          42 ]   [ Insul.    single ]       |
@@ -238,76 +232,98 @@ Wire guide settings, from **Setup → BOBBIN** or **Guide → BOBBIN**. Locked d
 |  [     BACK     ]          [     GUIDE    ]      |
 +--------------------------------------------------+
 ```
-- **Guide**, **First**, **AWG** (42 → 43 → 44) and **Insul.** (single / heavy) change on tap. The wire diameter including insulation comes from the table in `config.h` and is the pitch per turn.
-- **Margin** is kept clear inside **both** flanges (default 1.0 mm). **Inner w.** is the inner width, flange to flange; both open the keypad in mm with one decimal.
-- **Flanges** are the carriage positions on the rail where the wire meets each flange's inner face. They are **taught on the Guide screen** (tapping this row opens it); see [TRAVERSE.md](TRAVERSE.md#how-the-bobbin-is-located). Teaching flange 2 sets the inner width; typing the width moves flange 2.
+- **Guide**, **First** (first layer away from / toward home), **AWG** (42 → 43 → 44) and **Insul.** (single / heavy) change on tap. The wire diameter including insulation comes from `WIRE_SIZES` in `config.h` and is the pitch per turn.
+- **Margin** is kept clear inside **both** flanges. **Inner w.** is the inner width, flange to flange (typing it moves flange 2). Both open the keypad in mm with one decimal.
+- **Flanges** are the carriage positions on the rail where the wire meets each flange's inner face. They are **taught on the Guide screen**; tapping this row opens it. See [TRAVERSE.md](TRAVERSE.md#how-the-bobbin-is-located).
 - The summary line shows the wire, turns per layer and layers for the set turns, or in red why it won't fit (no room between the margins, bobbin past 50 mm, guide too slow for the RPM).
 
-### Guide (UI-6)
-Jog / home, from **Idle → GUIDE** or **Bobbin → GUIDE**.
+### Guide
+Jog, home and teach the bobbin, from **Idle → GUIDE** or **Bobbin → GUIDE**.
 ```
 +--------------------------------------------------+
-| GUIDE                        ● ready - motor free|
+| GUIDE                        ready - motor free  |
 +--------------------------------------------------+
 |  Position   12.345 mm                            |
 |        homed  -  endstop open                    |
 | [-10][ -1][-0.1][+0.1][ +1][+10]                 |
-| [  HOME  ] [   SET    ] [   SET    ]             |
-|            [ FLANGE 1 ] [ FLANGE 2 ]             |
-|  [ BOBBIN ] [  GO TO FLANGE 1  ] [ BACK ]        |
+| [   HOME   ] [   SET    ] [   SET    ]           |
+|              [ FLANGE 1 ] [ FLANGE 2 ]           |
+| [ BOBBIN ] [  GO TO FLANGE 1  ] [ BACK ]         |
 +--------------------------------------------------+
 ```
-- Jog in mm: minus is toward home (the motor), plus is away. Before homing, the firmware allows at most ±5 mm per jog.
+- **Jog** in mm: minus is toward home (the motor), plus is away. Before homing, at most ±5 mm per jog. The position is orange until homed.
 - **HOME** becomes **STOP** while homing or moving.
 - **Teaching the bobbin:** jog until the wire meets the inside of flange 1 (the one nearer home), tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. The state line confirms, e.g. "flange 2 set at 17.0 mm - inner width 12.0". Positions round to 0.1 mm.
-- **GO TO FLANGE** moves to flange 1, then flange 2 on the next tap (the label shows which), to check that the wire lines up with both. All three need homing.
-- The state line shows homed / NOT HOMED and the endstop, "guide driver not found" if it doesn't answer, or homing errors for 5 s.
-- On **Idle**, the GUIDE button turns orange as **HOME GUIDE!** while the guide is switched on but not homed, because START would refuse.
-- **Running** shows **layer n / N** in the middle of the info line (instead of the elapsed time) when the guide is used. **Done** shows the spindle and guide pulse checks on two lines.
-### Diagnostics (UI-6)
-From **Setup → DIAGNOSTICS**: firmware version, loop max, spindle (ready, motor free / holding, current), guide (driver found, homed, position), endstop and uptime, refreshed twice a second. Buttons: **SPINDLE** and **GUIDE** open the driver screen for that TMC2209, **TOUCH TEST**, **BACK**. The driver screens and the touch test return here.
+- **GO TO FLANGE** moves to flange 1, then flange 2 on the next tap (the label shows which), to check that the wire lines up with both.
+- SET and GO TO need homing; all motion is refused during a run.
+- The state line shows homed / NOT HOMED and the endstop, "guide driver not found - check wiring, re-init" if the driver doesn't answer, "winding - guide follows the spindle" during a run, or homing errors for 5 s.
+
+### Diagnostics
+From **Setup → DIAGNOSTICS**, refreshed twice a second:
+- firmware name and version;
+- loop max (orange above 5 ms);
+- spindle: ready / not ready, motor free / holding, run current;
+- guide: driver found, homed, position;
+- endstop: open / PRESSED;
+- uptime.
+
+Buttons: **SPINDLE** and **GUIDE** open the Driver screen for that TMC2209, **TOUCH TEST**, **BACK** (to Setup).
+
+### Driver
+Live status of one TMC2209 (opened from Diagnostics), the same data as serial `drv`, refreshed twice a second:
+- which driver, version, and whether it is configured;
+- mode (red if not as configured), microsteps, chopper settings;
+- run / hold current as set, and the current used right now (`cs_actual`);
+- motor enabled or free (the driver's EN input), temperature band (`t120` … `t157`, `otpw`, `ot`);
+- faults (shorts, driver reset, undervoltage, drv_err) and MSCNT.
+
+Open-load flags are not shown: the datasheet says they are often set falsely at standstill. Each UART read takes about 5 ms, so the screen reads **one register per loop pass**; reads pause while the motor turns (the fault watch owns the UART then). Buttons: **RE-INIT DRIVER** (both drivers) and **BACK** (to Diagnostics).
+
+### Touch test
+From Diagnostics: raw and calibrated touch values, loop max, and a dot wherever the screen is touched, with five markers to check the accuracy. Buttons: **CLEAR**, **CALIBRATE**, **BACK**.
 
 ### Touch calibration
-- **When it runs:** automatically on first boot (no valid data in EEPROM), or if the screen is **held for 3 s during boot**.
-- **How:** tap 3 crosshairs. That's enough to compute a full mapping, including rotation or mirroring.
-- The result is saved to EEPROM, and a quick "tap anywhere" test screen confirms it.
+- **When it runs:** automatically on first boot (no valid data in EEPROM), when the screen is **held for 3 s during boot**, from the touch test, or with serial `calibrate`.
+- **How:** tap 3 crosses (enough for a full mapping, including rotation or mirroring), then a 4th check cross, which must land within 12 px. Otherwise it starts again.
+- The result is saved to EEPROM.
 
-### Later
-- **Presets:** saved recipes (e.g. "Strat neck – 42AWG – 8000T"), possibly on the SD card.
+## 6. Pause / resume
 
-## 6. Firmware change needed: pause / resume
-
-Today `stop` ends the run. For RESUME:
-- A ramped stop ends the TeensyStep4 move as now. The run stays open, with `done` steps recorded.
-- **Resume** starts a new move of `target − done` steps in the same direction, with the same ramps.
-- The run keeps a **total** across all segments. The end-of-run step check and the **driver pulse check** (MSCNT read at the very start and very end) cover the whole run.
-- The change is contained in `src/winder.*`. Serial gets `resume` and `finish` commands too.
+In `src/winder.*`, used by both the screen and serial:
+- STOP (ramped) or E-STOP (next step) ends the TeensyStep4 move. The run stays open: **Paused**.
+- **RESUME** starts a new move of `target − done` steps in the same direction, with the same ramps, from the same position counter. The driver is checked first.
+- **FINISH** ends a paused run early (**ENDED EARLY**).
+- The end-of-run step check and the **driver pulse check** (MSCNT at the very start and very end) cover the whole run, pauses included.
+- The guide needs nothing extra: its position is a function of the spindle's step count.
 
 ## 7. Implementation phases
 
-| Phase | Content | Testable result |
+| Phase | Content | State |
 |---|---|---|
-| **UI-1** | Display + touch bring-up, test screen (touch dot + raw values), calibration | Taps land under your finger everywhere on the screen |
-| **UI-2** | `app` refactor, EEPROM settings | Serial console works exactly as before; settings survive a power cycle |
-| **UI-3** | Idle, Setup, Keypad screens | Settings can be set and validated from the screen |
-| **UI-4** | Running, Paused, Done, Fault + pause/resume | Full wind from the screen; STOP / RESUME / FINISH work |
-| **UI-5** | Driver screen | Same data as serial `drv` |
-| **UI-6** | Bobbin and Guide screens, layer n / N, guide pulse check, driver toggle | Written; full test after the traverse bring-up ([TRAVERSE.md](TRAVERSE.md)) |
+| **UI-1** | Display + touch bring-up, touch test screen, calibration | Done, tested |
+| **UI-2** | `app` refactor, EEPROM settings | Done, tested |
+| **UI-3** | Idle, Setup, Keypad on a frame buffer | Done, tested |
+| **UI-4** | Running, Paused, Done, Fault + pause / resume | Done, tested |
+| **UI-5** | Driver screen | Done, tested |
+| — | Text fitting, splash screen, heat (motor free / holding, HOT warning) | Done, tested |
+| **UI-6** | Bobbin, Guide and Diagnostics screens; layer n / N; guide pulse check | Done; guide parts tested once the guide is wired |
 | **UI-7** | Presets | Optional, SD card |
 
 ## 8. Verification
 
-- **UI-1:** taps land correctly near all four corners and the centre after calibration, and calibration survives a power cycle.
-- **Timing:** loop time at most 5 ms per pass while the Running screen updates (debug stat). The 100 ms fault poll stays on time.
-  - Known exception: the fault poll itself reads GSTAT and DRV_STATUS, about 10 ms of blocking UART every 100 ms while winding. Stepping is interrupt-driven, so the count is unaffected, but a STOP tap can wait up to ~10 ms. A non-blocking UART read would fix this if it ever matters.
-- **Exact count with the UI active:** 1000 turns at 1500 RPM, with the screen updating and touches during the run → `OK`, pulse check `OK`.
-- **STOP response:** the ramp-down starts on the first tap. A second tap stops on the next step. RESUME finishes with the exact total.
-- **Serial still works** at the same time: `status` during a UI-started run, and `stop` from serial.
-- **Fault path:** unplug the 24 V during a run → the Fault screen appears and the driver is disabled. **RE-INIT** recovers after power returns.
+- **Calibration:** taps land correctly near all four corners and the centre, and calibration survives a power cycle.
+- **Timing:** loop max 0.4 ms on the touch test screen. Known exception: the fault poll reads one driver's GSTAT and DRV_STATUS every 100 ms while winding, about 10 ms of blocking UART. Stepping is interrupt-driven, so the count is unaffected, but a STOP tap can wait up to ~10 ms.
+- **Exact count with the UI active:** runs at 1500 RPM with the screen updating and touches during the run → `OK`, pulse check `OK`.
+- **STOP response:** the ramp-down starts on the first tap; a second tap stops on the next step; RESUME finishes with the exact total.
+- **Serial at the same time:** `status` during a screen-started run, and `stop` from serial.
+- **Fault path:** 24 V off during a run → the Fault screen, driver disabled; **RE-INIT** recovers after power returns.
+- **Guide screens (after wiring):** homing, jog, flange teaching, layer n / N and the guide pulse check; see the checklist in [TRAVERSE.md](TRAVERSE.md#bring-up-checklist-after-wiring).
 
-## 9. Open questions
+## 9. Decisions
 
-- [x] Screen orientation: landscape, **pin header on the left** (`DISPLAY_ROTATION` in `config.h`; touch calibration handles the touch axes)
-- [x] Pause behaviour: **STOP pauses the run** → Paused screen with RESUME / FINISH
-- [x] Wiring: matches the table above
-- [x] Flicker-free numbers: decided in UI-3 — `ILI9341_t3n` frame buffer + async DMA (see §4 Rendering)
+- Screen orientation: landscape, **pin header on the left**.
+- **STOP pauses the run** → Paused screen with RESUME / FINISH.
+- Flicker-free numbers: `ILI9341_t3n` frame buffer + async DMA.
+- Done → **OK** returns to Idle instead of restarting.
+- The bobbin is located by **teaching both flanges** on the Guide screen, not by typing positions.
+- Driver details live in **Diagnostics**, not on the home screen.
