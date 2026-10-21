@@ -70,7 +70,7 @@ namespace ui::screens
             uint32_t tenths = (shownTrav.widthUm + 50) / 100;
             snprintf(text, sizeof(text), "%u AWG%s, %lu.%lu mm, %lu layers", shownTrav.awg, shownTrav.heavy ? " H" : "",
                      tenths / 10, tenths % 10, w.layers);
-            const ILI9341_t3_font_t& f = fitFont(text, theme::W - VALUE_X - 8, theme::FONT_VALUE);
+            const ILI9341_t3_font_t& f = fitFont(text, theme::W - VALUE_X - 4, theme::FONT_VALUE);
             printAt(text, VALUE_X, 92 + (theme::FONT_VALUE.cap_height - f.cap_height), f, theme::FG);
         }
         else printAt("guide off - by hand", VALUE_X, 95, theme::FONT_BODY, theme::MUTED);

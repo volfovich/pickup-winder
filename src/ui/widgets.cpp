@@ -12,9 +12,18 @@ namespace ui
         enum class MachineState : uint8_t { Unknown, NotReady, Ready, ReadyHolding, Winding, WindingHot, Paused };
         MachineState shownState = MachineState::Unknown;
 
-        // Font sizes for fitting text, largest first
-        const ILI9341_t3_font_t* const LADDER[] = {&Arial_28_Bold, &Arial_24_Bold, &Arial_16_Bold,
-                                                   &Arial_14_Bold, &Arial_12,      &Arial_11};
+        // Font sizes for fitting text, largest first. Text keeps its weight
+        // while it shrinks: bold (buttons, values) or regular (body text).
+        const ILI9341_t3_font_t* const BOLD_LADDER[] = {&Arial_28_Bold, &Arial_24_Bold, &Arial_16_Bold, &Arial_14_Bold,
+                                                        &Arial_13_Bold, &Arial_12_Bold, &Arial_11_Bold, &Arial_10_Bold};
+        const ILI9341_t3_font_t* const REGULAR_LADDER[] = {&Arial_14, &Arial_13, &Arial_12, &Arial_11, &Arial_10};
+
+        bool isBold(const ILI9341_t3_font_t& f)
+        {
+            for (const ILI9341_t3_font_t* b : BOLD_LADDER)
+                if (b == &f) return true;
+            return false;
+        }
 
         MachineState machineState()
         {
@@ -138,12 +147,16 @@ namespace ui
     {
         if (textWidth(text, preferred) <= maxW) return preferred;
         const ILI9341_t3_font_t* f = &preferred;
-        for (const ILI9341_t3_font_t* c : LADDER)
-        {
-            if (c->cap_height >= preferred.cap_height) continue;
-            f = c;
-            if (textWidth(text, *c) <= maxW) break;
-        }
+        auto tryLadder = [&](const ILI9341_t3_font_t* const* ladder, size_t n) {
+            for (size_t i = 0; i < n; i++)
+            {
+                if (ladder[i]->cap_height >= preferred.cap_height) continue;
+                f = ladder[i];
+                if (textWidth(text, *f) <= maxW) return;
+            }
+        };
+        if (isBold(preferred)) tryLadder(BOLD_LADDER, sizeof(BOLD_LADDER) / sizeof(BOLD_LADDER[0]));
+        else tryLadder(REGULAR_LADDER, sizeof(REGULAR_LADDER) / sizeof(REGULAR_LADDER[0]));
         return *f;
     }
 

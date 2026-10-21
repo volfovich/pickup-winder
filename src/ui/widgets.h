@@ -47,9 +47,9 @@ namespace ui
     void refreshStatusBar();
 
     int16_t textWidth(const char* text, const ILI9341_t3_font_t& font);
-    // The largest font, starting at `preferred` and going down the ladder
-    // 28B, 24B, 16B, 14B, 12, 11, in which text is at most maxW wide (the
-    // smallest one if none is).
+    // The largest font, starting at `preferred` and going down in the same
+    // weight (bold 28, 24, 16, 14, 13, 12, 11, 10 / regular 14 .. 10), in
+    // which text is at most maxW wide (the smallest one if none is).
     const ILI9341_t3_font_t& fitFont(const char* text, int16_t maxW, const ILI9341_t3_font_t& preferred);
     // Text centred in [x, x + w) in the largest font that fits.
     void printFit(const char* text, int16_t x, int16_t w, int16_t y, const ILI9341_t3_font_t& preferred, uint16_t color);
