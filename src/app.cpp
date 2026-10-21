@@ -8,7 +8,9 @@ namespace app
     namespace
     {
         winder::Settings current{DEFAULT_TURNS, DEFAULT_RPM, DEFAULT_ACCEL_RPM_PER_S, winder::Dir::CW};
-        TraverseSettings trav{false, DEFAULT_WIRE_UM, DEFAULT_WIDTH_UM, DEFAULT_OFFSET_UM, true};
+        constexpr TraverseSettings TRAV_DEFAULTS{false,         DEFAULT_AWG,       false, DEFAULT_WIDTH_UM,
+                                                 DEFAULT_MARGIN_UM, DEFAULT_FLANGE_UM, true};
+        TraverseSettings trav = TRAV_DEFAULTS;
 
         // Settings in EEPROM, versioned and checksummed
         struct Stored
@@ -20,6 +22,20 @@ namespace app
             uint16_t currentMa; // spindle run current
             uint32_t check;
         };
+        struct StoredV2 // guide set by wire / width / offset in um
+        {
+            uint32_t magic;
+            uint16_t version;
+            winder::Settings s;
+            struct
+            {
+                bool on;
+                uint32_t wireUm, widthUm, offsetUm;
+                bool firstAway;
+            } t;
+            uint16_t currentMa;
+            uint32_t check;
+        };
         struct StoredV1 // before the traverse
         {
             uint32_t magic;
@@ -28,7 +44,7 @@ namespace app
             uint32_t check;
         };
         constexpr uint32_t SETTINGS_MAGIC   = 0x57494E44; // "WIND"
-        constexpr uint16_t SETTINGS_VERSION = 2;
+        constexpr uint16_t SETTINGS_VERSION = 3;
 
         // Driver fault watch while winding: spindle and traverse take turns
         uint32_t lastPollMs  = 0;
@@ -69,10 +85,27 @@ namespace app
                    (s.dir == winder::Dir::CW || s.dir == winder::Dir::CCW);
         }
 
+        const WireSize* wireSize(uint32_t awg)
+        {
+            for (const WireSize& w : WIRE_SIZES)
+                if (w.awg == awg) return &w;
+            return nullptr;
+        }
+
         bool valid(const TraverseSettings& t)
         {
-            return t.wireUm >= MIN_WIRE_UM && t.wireUm <= MAX_WIRE_UM && t.widthUm >= MIN_WIDTH_UM &&
-                   t.widthUm <= MAX_WIDTH_UM && t.offsetUm <= TRAVERSE_TRAVEL_UM;
+            return wireSize(t.awg) && t.widthUm >= MIN_WIDTH_UM && t.widthUm <= MAX_WIDTH_UM &&
+                   t.marginUm <= MAX_MARGIN_UM && t.flangeUm <= TRAVERSE_TRAVEL_UM;
+        }
+
+        bool validCurrent(uint16_t mA)
+        {
+            return mA >= MIN_CURRENT_MA && mA <= MAX_CURRENT_MA;
+        }
+
+        uint32_t roundTenth(uint32_t um)
+        {
+            return (um + 50) / 100 * 100;
         }
 
         void save()
@@ -90,8 +123,9 @@ namespace app
 
         bool makeRunPattern()
         {
-            return traverse_math::makePattern(&pattern, trav.wireUm, trav.widthUm, trav.offsetUm, trav.firstAway,
-                                              TRAVERSE_STEPS_PER_MM, STEPS_PER_REV);
+            Winding w = winding();
+            return w.turnsPerLayer && traverse_math::makePattern(&pattern, w.pitchUm, w.spanUm, w.startUm,
+                                                                 trav.firstAway, TRAVERSE_STEPS_PER_MM, STEPS_PER_REV);
         }
 
         void watchDriver()
@@ -183,11 +217,23 @@ namespace app
         Stored d;
         EEPROM.get(EEPROM_ADDR_SETTINGS, d);
         if (d.magic == SETTINGS_MAGIC && d.version == SETTINGS_VERSION && d.check == checksum(d) && valid(d.s) &&
-            valid(d.t) && d.currentMa >= MIN_CURRENT_MA && d.currentMa <= MAX_CURRENT_MA)
+            valid(d.t) && validCurrent(d.currentMa))
         {
             current = d.s;
             trav    = d.t;
             tmc::spindle.setCurrent(d.currentMa); // before the driver is configured: used by begin()
+            return;
+        }
+
+        StoredV2 v2;
+        EEPROM.get(EEPROM_ADDR_SETTINGS, v2);
+        if (v2.magic == SETTINGS_MAGIC && v2.version == 2 && v2.check == checksum(v2) && valid(v2.s) &&
+            validCurrent(v2.currentMa))
+        {
+            current = v2.s;
+            tmc::spindle.setCurrent(v2.currentMa);
+            save(); // as version 3: the guide is now set by AWG / margin / flange, back to defaults
+            Serial.println("settings: upgraded (guide settings reset: AWG, margin, flange)");
             return;
         }
 
@@ -318,16 +364,19 @@ namespace app
         return nullptr;
     }
 
-    const char* setWire(uint32_t um)
+    const char* setAwg(uint32_t awg)
     {
-        static char msg[40];
         if (winder::inRun() || positioningNow) return BUSY;
-        if (um < MIN_WIRE_UM || um > MAX_WIRE_UM)
-        {
-            snprintf(msg, sizeof(msg), "wire must be 0.%03lu..0.%03lu mm", MIN_WIRE_UM, MAX_WIRE_UM);
-            return msg;
-        }
-        trav.wireUm = um;
+        if (!wireSize(awg)) return "AWG must be 42, 43 or 44";
+        trav.awg = awg;
+        save();
+        return nullptr;
+    }
+
+    const char* setHeavy(bool heavy)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        trav.heavy = heavy;
         save();
         return nullptr;
     }
@@ -336,6 +385,7 @@ namespace app
     {
         static char msg[40];
         if (winder::inRun() || positioningNow) return BUSY;
+        um = roundTenth(um);
         if (um < MIN_WIDTH_UM || um > MAX_WIDTH_UM)
         {
             snprintf(msg, sizeof(msg), "width must be %lu..%lu mm", MIN_WIDTH_UM / 1000, MAX_WIDTH_UM / 1000);
@@ -346,13 +396,75 @@ namespace app
         return nullptr;
     }
 
-    const char* setOffset(uint32_t um)
+    const char* setMargin(uint32_t um)
     {
+        static char msg[40];
         if (winder::inRun() || positioningNow) return BUSY;
-        if (um > TRAVERSE_TRAVEL_UM) return "offset must be 0..50 mm";
-        trav.offsetUm = um;
+        um = roundTenth(um);
+        if (um > MAX_MARGIN_UM)
+        {
+            snprintf(msg, sizeof(msg), "margin must be 0..%lu mm", MAX_MARGIN_UM / 1000);
+            return msg;
+        }
+        trav.marginUm = um;
         save();
         return nullptr;
+    }
+
+    const char* setFlange1(uint32_t um)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        um = roundTenth(um);
+        if (um > TRAVERSE_TRAVEL_UM - MIN_WIDTH_UM) return "flange 1 must be 0..48 mm";
+        // Flange 2 stays put, unless that leaves less than the minimum width
+        uint32_t flange2 = trav.flangeUm + trav.widthUm;
+        if (flange2 >= um + MIN_WIDTH_UM && flange2 - um <= MAX_WIDTH_UM) trav.widthUm = flange2 - um;
+        trav.flangeUm = um;
+        save();
+        return nullptr;
+    }
+
+    const char* setFlange2(uint32_t um)
+    {
+        static char msg[48];
+        if (winder::inRun() || positioningNow) return BUSY;
+        um = roundTenth(um);
+        if (um > TRAVERSE_TRAVEL_UM) return "flange 2 must be within 50 mm";
+        if (um < trav.flangeUm + MIN_WIDTH_UM)
+        {
+            snprintf(msg, sizeof(msg), "flange 2: at least %lu mm past flange 1", MIN_WIDTH_UM / 1000);
+            return msg;
+        }
+        trav.widthUm = um - trav.flangeUm;
+        save();
+        return nullptr;
+    }
+
+    namespace
+    {
+        const char* carriageUm(uint32_t* um)
+        {
+            if (winder::inRun() || positioningNow) return BUSY;
+            if (!traverse::homed()) return "home the guide first";
+            if (traverse::busy()) return "guide is moving";
+            int32_t v = lroundf(traverse::positionMm() * 1000);
+            *um       = v < 0 ? 0 : v;
+            return nullptr;
+        }
+    }
+
+    const char* setFlange1Here()
+    {
+        uint32_t um;
+        if (const char* err = carriageUm(&um)) return err;
+        return setFlange1(um);
+    }
+
+    const char* setFlange2Here()
+    {
+        uint32_t um;
+        if (const char* err = carriageUm(&um)) return err;
+        return setFlange2(um);
     }
 
     const char* setFirstAway(bool away)
@@ -363,17 +475,29 @@ namespace app
         return nullptr;
     }
 
+    Winding winding()
+    {
+        Winding w{};
+        const WireSize* size = wireSize(trav.awg);
+        w.pitchUm            = size ? (trav.heavy ? size->heavyUm : size->singleUm) : MAX_WIRE_UM;
+        w.startUm            = trav.flangeUm + trav.marginUm;
+        uint32_t room        = trav.widthUm > 2 * trav.marginUm ? trav.widthUm - 2 * trav.marginUm : 0;
+        w.turnsPerLayer      = room / w.pitchUm;
+        w.spanUm             = w.turnsPerLayer * w.pitchUm;
+        w.layers             = w.turnsPerLayer ? (current.turns + w.turnsPerLayer - 1) / w.turnsPerLayer : 0;
+        return w;
+    }
+
     const char* checkTraverse()
     {
         static char msg[48];
-        if (trav.widthUm < trav.wireUm) return "width is less than one wire";
-        uint32_t turnsPerLayer = trav.widthUm / trav.wireUm;
-        if (trav.offsetUm + turnsPerLayer * trav.wireUm > TRAVERSE_TRAVEL_UM)
-            return "winding goes past 50 mm - reduce offset or width";
-        float followUmS = trav.wireUm * winder::actualRpm(current.rpm) / 60.0f;
+        Winding w = winding();
+        if (!w.turnsPerLayer) return "margins leave no room to wind";
+        if (trav.flangeUm + trav.widthUm > TRAVERSE_TRAVEL_UM) return "bobbin past 50 mm - check flange / width";
+        float followUmS = w.pitchUm * winder::actualRpm(current.rpm) / 60.0f;
         if (followUmS > TRAVERSE_MAX_FOLLOW_UM_S)
         {
-            snprintf(msg, sizeof(msg), "wire too thick for %lu rpm (guide max %lu mm/s)", current.rpm,
+            snprintf(msg, sizeof(msg), "guide too slow for %lu rpm (max %lu mm/s)", current.rpm,
                      TRAVERSE_MAX_FOLLOW_UM_S / 1000);
             return msg;
         }
@@ -388,7 +512,7 @@ namespace app
         if (!trav.on) return startSpindle();
 
         if (const char* err = winder::canStart(current)) return err;
-        if (!tmc::traverse.ready()) return "traverse driver not ready - check 24 V, then re-init";
+        if (!tmc::traverse.ready()) return "guide driver not ready - check 24 V, re-init";
         if (!traverse::homed()) return "traverse not homed - home it first";
         if (const char* err = checkTraverse()) return err;
         tmc::Fault f = tmc::traverse.poll(nullptr);
@@ -398,7 +522,7 @@ namespace app
             snprintf(reason, sizeof(reason), "traverse: %s", tmc::faultName(f));
             return reason;
         }
-        if (!makeRunPattern()) return "width is less than one wire";
+        if (!makeRunPattern()) return "margins leave no room to wind";
         if (const char* err = traverse::moveToSteps(traverse_math::position(pattern, 0))) return err;
         positioningNow = true;
         return nullptr;
@@ -416,7 +540,7 @@ namespace app
 
     const char* resume()
     {
-        if (travRun && !tmc::traverse.ready()) return "traverse driver not ready - check 24 V, then re-init";
+        if (travRun && !tmc::traverse.ready()) return "guide driver not ready - check 24 V, re-init";
         if (const char* err = winder::resume()) return err;
         resetWatch();
         return nullptr;

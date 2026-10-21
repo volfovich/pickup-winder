@@ -15,17 +15,30 @@ namespace app
     struct TraverseSettings
     {
         bool on;
-        uint32_t wireUm;   // wire diameter incl. insulation = the pitch
-        uint32_t widthUm;  // winding width between the flanges
-        uint32_t offsetUm; // near (home side) edge of the winding, from home
+        uint8_t awg;       // 42 / 43 / 44 (WIRE_SIZES in config.h)
+        bool heavy;        // heavy-build insulation
+        uint32_t widthUm;  // bobbin inner width, flange to flange
+        uint32_t marginUm; // kept clear inside both flanges
+        uint32_t flangeUm; // flange 1 (nearer the rail's home end): carriage position, from home,
+                           // where the wire meets its inner face. Flange 2 = flange 1 + width.
         bool firstAway;    // the first layer moves away from home
 
         bool operator==(const TraverseSettings& o) const
         {
-            return on == o.on && wireUm == o.wireUm && widthUm == o.widthUm && offsetUm == o.offsetUm &&
-                   firstAway == o.firstAway;
+            return on == o.on && awg == o.awg && heavy == o.heavy && widthUm == o.widthUm &&
+                   marginUm == o.marginUm && flangeUm == o.flangeUm && firstAway == o.firstAway;
         }
         bool operator!=(const TraverseSettings& o) const { return !(*this == o); }
+    };
+
+    // What the guide winds with the current settings
+    struct Winding
+    {
+        uint32_t pitchUm;       // wire diameter incl. insulation
+        uint32_t startUm;       // near edge of the winding, from home (flange + margin)
+        uint32_t spanUm;        // turnsPerLayer x pitch
+        uint32_t turnsPerLayer; // 0: no room between the margins
+        uint32_t layers;        // for the set turns
     };
 
     void begin(); // loads settings from EEPROM (defaults if empty/invalid)
@@ -48,11 +61,20 @@ namespace app
     uint16_t spindleCurrent();
 
     const char* setTraverseOn(bool on);
-    const char* setWire(uint32_t um);
-    const char* setWidth(uint32_t um);
-    const char* setOffset(uint32_t um);
+    const char* setAwg(uint32_t awg);
+    const char* setHeavy(bool heavy);
+    const char* setWidth(uint32_t um);  // lengths round to 0.1 mm
+    const char* setMargin(uint32_t um);
+    // The flanges are taught on the Guide screen: the carriage position where
+    // the wire meets each flange's inner face. Setting flange 1 keeps flange 2
+    // where it is; setting flange 2 sets the inner width.
+    const char* setFlange1(uint32_t um);
+    const char* setFlange2(uint32_t um);
+    const char* setFlange1Here(); // the guide's current position (needs homing)
+    const char* setFlange2Here();
     const char* setFirstAway(bool away);
-    // Checks that the wire / width / offset fit the slide and the RPM
+    Winding winding();
+    // Checks that the winding fits the bobbin, the slide and the RPM
     const char* checkTraverse();
 
     // With the traverse on, START first moves the guide to the start

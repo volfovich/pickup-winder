@@ -1,6 +1,7 @@
 #include "ui/screens/idle.h"
 #include "app.h"
-#include "ui/screens/driver.h"
+#include "traverse.h"
+#include "ui/screens/guide.h"
 #include "ui/screens/setup.h"
 #include "ui/ui.h"
 
@@ -20,8 +21,8 @@ namespace ui::screens
     Idle::Idle()
         : buttons{
               {8, 128, 304, 56, "START", theme::GO},
-              {8, 192, 148, 42, "SETUP"},
-              {164, 192, 148, 42, "DRIVER"},
+              {8, 190, 148, 46, "SETUP"},
+              {164, 190, 148, 46, "GUIDE"},
           },
           group(buttons, BTN_COUNT)
     {
@@ -31,7 +32,10 @@ namespace ui::screens
     {
         drawStatusBar("IDLE");
         shown            = app::settings();
+        shownTrav        = app::traverseSettings();
         shownPositioning = false;
+        shownGuideWarn   = guideWarning();
+        setGuideLabel();
         msgUntilMs       = 0;
         buttons[BTN_START].label = "START";
         buttons[BTN_START].color = theme::GO;
@@ -42,12 +46,14 @@ namespace ui::screens
 
     void Idle::drawValues()
     {
-        static char text[32];
+        static char text[48];
         auto& d = tft();
-        d.fillRect(0, theme::STATUS_H, theme::W, 124 - theme::STATUS_H, theme::BG);
+        d.fillRect(0, theme::STATUS_H, theme::W, MSG_Y - theme::STATUS_H, theme::BG);
 
         printAt("Turns", 12, 40, theme::FONT_LABEL, theme::MUTED);
         printAt(fmtThousands(shown.turns, text, sizeof(text)), VALUE_X, 32, theme::FONT_LARGE, theme::FG);
+        printAt("Dir", 222, 40, theme::FONT_LABEL, theme::MUTED);
+        printAt(shown.dir == winder::Dir::CW ? "CW" : "CCW", 254, 38, theme::FONT_VALUE, theme::FG);
 
         printAt("RPM", 12, 72, theme::FONT_LABEL, theme::MUTED);
         snprintf(text, sizeof(text), "%lu", shown.rpm);
@@ -56,11 +62,30 @@ namespace ui::screens
         snprintf(text, sizeof(text), "(actual %.1f)", winder::actualRpm(shown.rpm));
         printAt(text, x, 73, theme::FONT_BODY, theme::MUTED);
 
-        printAt("Accel", 12, 94, theme::FONT_LABEL, theme::MUTED);
-        snprintf(text, sizeof(text), "%lu RPM/s", shown.accelRpmPerS);
-        printAt(text, VALUE_X, 92, theme::FONT_VALUE, theme::FG);
-        printAt("Dir", 232, 94, theme::FONT_LABEL, theme::MUTED);
-        printAt(shown.dir == winder::Dir::CW ? "CW" : "CCW", 268, 92, theme::FONT_VALUE, theme::FG);
+        // The bobbin to wind (with the guide), else guided by hand
+        printAt("Bobbin", 12, 94, theme::FONT_LABEL, theme::MUTED);
+        if (shownTrav.on)
+        {
+            app::Winding w = app::winding();
+            uint32_t tenths = (shownTrav.widthUm + 50) / 100;
+            snprintf(text, sizeof(text), "%u AWG%s, %lu.%lu mm, %lu layers", shownTrav.awg, shownTrav.heavy ? " H" : "",
+                     tenths / 10, tenths % 10, w.layers);
+            const ILI9341_t3_font_t& f = fitFont(text, theme::W - VALUE_X - 8, theme::FONT_VALUE);
+            printAt(text, VALUE_X, 92 + (theme::FONT_VALUE.cap_height - f.cap_height), f, theme::FG);
+        }
+        else printAt("guide off - by hand", VALUE_X, 95, theme::FONT_BODY, theme::MUTED);
+    }
+
+    // The guide is switched on but not homed: START would refuse
+    bool Idle::guideWarning()
+    {
+        return app::traverseSettings().on && !traverse::homed();
+    }
+
+    void Idle::setGuideLabel()
+    {
+        buttons[BTN_GUIDE].label = shownGuideWarn ? "HOME\nGUIDE!" : "GUIDE";
+        buttons[BTN_GUIDE].color = shownGuideWarn ? theme::WARN : theme::BUTTON;
     }
 
     // With the traverse on, START first moves the guide to the start
@@ -82,6 +107,12 @@ namespace ui::screens
     void Idle::update()
     {
         followPositioning();
+        if (guideWarning() != shownGuideWarn && group.pressed() != BTN_GUIDE)
+        {
+            shownGuideWarn = !shownGuideWarn;
+            setGuideLabel();
+            buttons[BTN_GUIDE].draw();
+        }
         if (msgUntilMs && millis() > msgUntilMs)
         {
             msgUntilMs = 0;
@@ -90,9 +121,10 @@ namespace ui::screens
         if (millis() - lastCheckMs < CHECK_MS) return;
         lastCheckMs = millis();
         const winder::Settings& s = app::settings();
-        if (s != shown)
+        if (s != shown || app::traverseSettings() != shownTrav)
         {
-            shown = s;
+            shown     = s;
+            shownTrav = app::traverseSettings();
             drawValues();
         }
     }
@@ -110,7 +142,7 @@ namespace ui::screens
                 }
                 break;
             case BTN_SETUP: show(setup); break;
-            case BTN_DRIVER: show(driver); break;
+            case BTN_GUIDE: show(guide); break;
             default: break;
         }
     }

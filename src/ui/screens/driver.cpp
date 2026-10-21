@@ -1,6 +1,6 @@
 #include "ui/screens/driver.h"
 #include "app.h"
-#include "ui/screens/idle.h"
+#include "ui/screens/diagnostics.h"
 #include "ui/ui.h"
 #include "winder.h"
 
@@ -32,6 +32,12 @@ namespace ui::screens
           },
           group(buttons, BTN_COUNT)
     {
+    }
+
+    void Driver::open(tmc::Driver& d)
+    {
+        drv = &d;
+        show(*this);
     }
 
     void Driver::enter()
@@ -67,16 +73,18 @@ namespace ui::screens
 
         if (!comm)
         {
-            drawLine(0, "NO RESPONSE - 24 V off?", theme::ERR);
+            drawLine(0, drv == &tmc::spindle ? "spindle  NO RESPONSE - 24 V off?" : "guide  NO RESPONSE - 24 V off?",
+                     theme::ERR);
             for (uint8_t i = 1; i < LINES; i++) drawLine(i, "", theme::FG);
             return;
         }
 
-        snprintf(t, sizeof(t), "v0x%02X  %s", s.version, tmc::spindle.ready() ? "configured" : "NOT CONFIGURED");
-        drawLine(0, t, tmc::spindle.ready() ? theme::OK : theme::WARN);
+        snprintf(t, sizeof(t), "%s  v0x%02X  %s", drv == &tmc::spindle ? "spindle" : "guide", s.version,
+                 drv->ready() ? "configured" : "NOT CONFIGURED");
+        drawLine(0, t, drv->ready() ? theme::OK : theme::WARN);
 
         snprintf(t, sizeof(t), "%s, %u microsteps", s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps);
-        drawLine(1, t, s.spreadCycle ? theme::FG : theme::ERR);
+        drawLine(1, t, s.spreadCycle == !drv->config().stealthChop ? theme::FG : theme::ERR); // red: not as configured
 
         snprintf(t, sizeof(t), "toff %u  hstrt %u  hend %u  tbl %u", s.toff, s.hstrt, s.hend, s.tblClocks);
         drawLine(2, t, theme::FG);
@@ -123,7 +131,7 @@ namespace ui::screens
             refreshNow   = false;
             cycleStartMs = millis();
         }
-        if (!tmc::spindle.readStatus(&reading, part))
+        if (!drv->readStatus(&reading, part))
         {
             part = 0;
             drawStatus(false);
@@ -145,7 +153,7 @@ namespace ui::screens
                 part       = 0;
                 refreshNow = true;
                 break;
-            case BTN_BACK: show(idle); break;
+            case BTN_BACK: show(diagnostics); break;
             default: break;
         }
     }

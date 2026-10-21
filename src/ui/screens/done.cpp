@@ -21,7 +21,7 @@ namespace ui::screens
 
     void Done::enter()
     {
-        char a[16], b[16], line[48];
+        char a[16], b[16], line[80];
         drawStatusBar("DONE");
 
         uint32_t n      = winder::stepsDone();
@@ -51,25 +51,36 @@ namespace ui::screens
                      fmtThousands(target / STEPS_PER_REV, b, sizeof(b)));
         printAt(line, 16, 80, theme::FONT_VALUE, theme::FG);
 
-        snprintf(line, sizeof(line), "steps  %s", fmtThousands(n, a, sizeof(a)));
-        printAt(line, 16, 106, theme::FONT_BODY, theme::MUTED);
-
+        // Driver pulse checks: did each driver receive every step sent?
         int16_t off;
-        winder::PulseCheck pc = winder::pulseCheck(&off);
-        uint16_t pcColor      = theme::OK;
-        switch (pc)
+        auto describe = [&](const char* name, winder::PulseCheck pc, int16_t o, int16_t y) {
+            uint16_t pcColor = theme::OK;
+            switch (pc)
+            {
+                case winder::PulseCheck::Ok: snprintf(line, sizeof(line), "%s pulse check  OK", name); break;
+                case winder::PulseCheck::Mismatch:
+                    snprintf(line, sizeof(line), "%s pulse check  MISMATCH (%+d)", name, o);
+                    pcColor = theme::ERR;
+                    break;
+                default:
+                    snprintf(line, sizeof(line), "%s pulse check  unavailable", name);
+                    pcColor = theme::WARN;
+                    break;
+            }
+            printAt(line, 16, y, theme::FONT_BODY, pcColor);
+        };
+        if (app::traverseRun())
         {
-            case winder::PulseCheck::Ok: snprintf(line, sizeof(line), "driver pulse check  OK"); break;
-            case winder::PulseCheck::Mismatch:
-                snprintf(line, sizeof(line), "driver pulse check  MISMATCH (%+d)", off);
-                pcColor = theme::ERR;
-                break;
-            default:
-                snprintf(line, sizeof(line), "driver pulse check  unavailable");
-                pcColor = theme::WARN;
-                break;
+            // No room for the steps line: the turns above show the fraction
+            describe("spindle", winder::pulseCheck(&off), off, 106);
+            describe("guide", app::traversePulseCheck(&off), off, 128);
         }
-        printAt(line, 16, 128, theme::FONT_BODY, pcColor);
+        else
+        {
+            snprintf(line, sizeof(line), "steps  %s", fmtThousands(n, a, sizeof(a)));
+            printAt(line, 16, 106, theme::FONT_BODY, theme::MUTED);
+            describe("driver", winder::pulseCheck(&off), off, 128);
+        }
 
         snprintf(line, sizeof(line), "winding time  %s", fmtDuration(winder::windingMs(), a, sizeof(a)));
         printAt(line, 16, 150, theme::FONT_BODY, theme::MUTED);

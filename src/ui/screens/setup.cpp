@@ -1,9 +1,10 @@
 #include "ui/screens/setup.h"
 #include "app.h"
 #include "config.h"
+#include "ui/screens/bobbin.h"
 #include "ui/screens/idle.h"
 #include "ui/screens/keypad.h"
-#include "ui/screens/touch_test.h"
+#include "ui/screens/diagnostics.h"
 #include "ui/ui.h"
 
 namespace ui::screens
@@ -21,8 +22,9 @@ namespace ui::screens
               {8, 70, 304, 34, "RPM"},
               {8, 108, 304, 34, "Accel (RPM/s)"},
               {8, 146, 304, 34, "Direction"},
-              {8, 188, 148, 46, "BACK"},
-              {164, 188, 148, 46, "TOUCH TEST"},
+              {8, 188, 70, 46, "BACK"},
+              {82, 188, 92, 46, "BOBBIN"},
+              {178, 188, 134, 46, "DIAGNOSTICS"},
           },
           group(buttons, BTN_COUNT)
     {
@@ -76,7 +78,8 @@ namespace ui::screens
                 buttons[F_DIR].draw();
                 break;
             case BTN_BACK: show(idle); break;
-            case BTN_TOUCH: show(touchTest); break;
+            case BTN_BOBBIN: show(bobbin); break;
+            case BTN_DIAG: show(diagnostics); break;
             default: break;
         }
     }

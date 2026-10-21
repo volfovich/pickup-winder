@@ -119,12 +119,24 @@ constexpr uint32_t HOMING_SEARCH_UM       = 52000;
 // Fastest the wire guide may have to follow while winding (wire x RPM / 60)
 constexpr uint32_t TRAVERSE_MAX_FOLLOW_UM_S = 6000;
 
-// Bobbin / wire settings (all in um)
-constexpr uint32_t MIN_WIRE_UM = 20, MAX_WIRE_UM = 500;
-constexpr uint32_t MIN_WIDTH_UM = 1000, MAX_WIDTH_UM = 48000;
-constexpr uint32_t DEFAULT_WIRE_UM   = 71;    // 42 AWG with insulation
-constexpr uint32_t DEFAULT_WIDTH_UM  = 12000; // winding width between the flanges
-constexpr uint32_t DEFAULT_OFFSET_UM = 5000;  // first flange, measured from home
+// Wire: outer diameter incl. insulation = the guide's pitch per turn (um).
+// Nominal values; adjust to your wire's datasheet.
+struct WireSize
+{
+    uint8_t awg;
+    uint16_t singleUm; // single build (plain enamel / poly)
+    uint16_t heavyUm;  // heavy build (heavy formvar / heavy poly)
+};
+constexpr WireSize WIRE_SIZES[] = {{42, 71, 76}, {43, 63, 69}, {44, 56, 61}};
+constexpr uint8_t DEFAULT_AWG = 42;
+constexpr uint32_t MAX_WIRE_UM = 76; // largest in the table
+
+// Bobbin (all in um, set in 0.1 mm steps)
+constexpr uint32_t MIN_WIDTH_UM = 2000, MAX_WIDTH_UM = 48000; // inner width, flange to flange
+constexpr uint32_t MAX_MARGIN_UM      = 5000; // kept clear inside each flange
+constexpr uint32_t DEFAULT_WIDTH_UM   = 12000;
+constexpr uint32_t DEFAULT_MARGIN_UM  = 1000;
+constexpr uint32_t DEFAULT_FLANGE_UM  = 5000; // inner face of the near flange, from home
 
 // TeensyStep4 counts position in int32_t
 static_assert((uint64_t)MAX_TURNS * STEPS_PER_REV <= INT32_MAX, "MAX_TURNS * STEPS_PER_REV must fit in int32");

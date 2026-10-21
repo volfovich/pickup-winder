@@ -34,9 +34,12 @@ namespace
             "  traverse on|off   use the wire guide for winding\n"
             "  home              find the home switch (motor end = 0 mm)\n"
             "  jog MM / goto MM  move the guide (e.g. jog -0.5, goto 12)\n"
-            "  wire MM           wire diameter incl. insulation (e.g. 0.071)\n"
-            "  width MM          winding width between the flanges\n"
-            "  offset MM         near flange of the winding, from home\n"
+            "  awg 42|43|44      wire size\n"
+            "  insulation single|heavy  wire insulation build\n"
+            "  flange1 MM|here   carriage position where the wire meets flange 1 (nearer home)\n"
+            "  flange2 MM|here   same for flange 2; sets the inner width\n"
+            "  width MM          bobbin inner width (moves flange 2)\n"
+            "  margin MM         kept clear inside both flanges\n"
             "  layer away|toward first layer direction\n"
             "  endstop           home switch state\n"
             "While winding / paused:\n"
@@ -68,16 +71,26 @@ namespace
         return buf;
     }
 
+    // "12.3" for a setting in um (kept in 0.1 mm steps)
+    const char* fmtTenth(uint32_t um, char* buf, size_t size)
+    {
+        uint32_t tenths = (um + 50) / 100;
+        snprintf(buf, size, "%lu.%lu", tenths / 10, tenths % 10);
+        return buf;
+    }
+
     void printTraverseSettings()
     {
         const app::TraverseSettings& t = app::traverseSettings();
-        char a[16], b[16], c[16];
-        Serial.printf("traverse %s  wire %s  width %s  offset %s  first layer %s", t.on ? "ON" : "off",
-                      fmtMm(t.wireUm, a, sizeof(a)), fmtMm(t.widthUm, b, sizeof(b)), fmtMm(t.offsetUm, c, sizeof(c)),
-                      t.firstAway ? "away" : "toward");
-        if (t.widthUm >= t.wireUm)
-            Serial.printf("  (%lu turns/layer, %s mm)", t.widthUm / t.wireUm,
-                          fmtMm(t.widthUm / t.wireUm * t.wireUm, a, sizeof(a)));
+        app::Winding w = app::winding();
+        char p[16], a[16], b[16], c[16], s[16];
+        Serial.printf("traverse %s  %u AWG %s (%s)  flanges %s - %s (inner width %s)  margin %s  first layer %s",
+                      t.on ? "ON" : "off", t.awg, t.heavy ? "heavy" : "single", fmtMm(w.pitchUm, p, sizeof(p)),
+                      fmtTenth(t.flangeUm, c, sizeof(c)), fmtTenth(t.flangeUm + t.widthUm, s, sizeof(s)),
+                      fmtTenth(t.widthUm, a, sizeof(a)), fmtTenth(t.marginUm, b, sizeof(b)), t.firstAway ? "away" : "toward");
+        if (w.turnsPerLayer)
+            Serial.printf("\n  winds %s mm from %s: %lu turns/layer, %lu layers", fmtMm(w.spanUm, s, sizeof(s)),
+                          fmtMm(w.startUm, a, sizeof(a)), w.turnsPerLayer, w.layers);
         Serial.println();
         if (const char* err = app::checkTraverse()) Serial.printf("  WARNING: %s\n", err);
     }
@@ -169,7 +182,7 @@ namespace
     void setLength(const char* (*setter)(uint32_t), const char* arg)
     {
         int32_t um;
-        if (!parseMm(arg, um) || um < 0) Serial.println("ERR: give a length in mm, e.g. 0.071");
+        if (!parseMm(arg, um) || um < 0) Serial.println("ERR: give a length in mm, e.g. 12.5");
         else report(setter(um));
         printTraverseSettings();
     }
@@ -231,9 +244,31 @@ namespace
             else Serial.println("ERR: traverse on|off");
             printTraverseSettings();
         }
-        else if (!strcmp(cmd, "wire")) setLength(app::setWire, arg);
+        else if (!strcmp(cmd, "awg"))
+        {
+            uint32_t v;
+            report(parseUint(arg, v) ? app::setAwg(v) : "awg 42|43|44");
+            printTraverseSettings();
+        }
+        else if (!strcmp(cmd, "insulation"))
+        {
+            if (arg && !strcmp(arg, "single")) report(app::setHeavy(false));
+            else if (arg && !strcmp(arg, "heavy")) report(app::setHeavy(true));
+            else Serial.println("ERR: insulation single|heavy");
+            printTraverseSettings();
+        }
         else if (!strcmp(cmd, "width")) setLength(app::setWidth, arg);
-        else if (!strcmp(cmd, "offset")) setLength(app::setOffset, arg);
+        else if (!strcmp(cmd, "margin")) setLength(app::setMargin, arg);
+        else if (!strcmp(cmd, "flange1") || !strcmp(cmd, "flange2"))
+        {
+            bool one = cmd[6] == '1';
+            if (arg && !strcmp(arg, "here"))
+            {
+                report(one ? app::setFlange1Here() : app::setFlange2Here());
+                printTraverseSettings();
+            }
+            else setLength(one ? app::setFlange1 : app::setFlange2, arg);
+        }
         else if (!strcmp(cmd, "layer"))
         {
             if (arg && !strcmp(arg, "away")) report(app::setFirstAway(true));

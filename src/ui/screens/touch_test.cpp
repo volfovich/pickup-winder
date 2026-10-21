@@ -1,5 +1,5 @@
 #include "ui/screens/touch_test.h"
-#include "ui/screens/setup.h"
+#include "ui/screens/diagnostics.h"
 #include "ui/ui.h"
 
 namespace ui::screens
@@ -112,7 +112,7 @@ namespace ui::screens
         {
             case BTN_CLEAR: show(*this); break;
             case BTN_CALIBRATE: startCalibration(); break;
-            case BTN_BACK: show(setup); break;
+            case BTN_BACK: show(diagnostics); break;
             default: break;
         }
     }

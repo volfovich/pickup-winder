@@ -13,6 +13,7 @@ namespace ui::screens
     {
      public:
         Driver();
+        void open(tmc::Driver& d); // shows this driver
         void enter() override;
         void update() override;
         void onTouch(const touch::Event& e) override;
@@ -30,6 +31,7 @@ namespace ui::screens
         uint16_t shownColor[LINES];
 
         tmc::Status reading{};
+        tmc::Driver* drv = &tmc::spindle; // which driver is shown
         uint8_t part          = 0;
         uint32_t cycleStartMs = 0;
         bool refreshNow       = true;

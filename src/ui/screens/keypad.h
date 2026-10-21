@@ -15,6 +15,10 @@ namespace ui::screens
 
         Keypad();
         void open(const char* title, uint32_t minValue, uint32_t maxValue, uint32_t current, Apply apply, Screen& back);
+        // Same for a length in mm with up to `decimals` (1..3) decimals;
+        // values and `apply` are in um.
+        void openMm(const char* title, uint32_t minUm, uint32_t maxUm, uint32_t currentUm, Apply apply, Screen& back,
+                    uint8_t decimals = 3);
 
         void enter() override;
         void onTouch(const touch::Event& e) override;
@@ -22,6 +26,10 @@ namespace ui::screens
      private:
         void drawEntry();
         void drawError();
+        void type(int8_t key);
+        void openAs(bool mm, const char* title, uint32_t minValue, uint32_t maxValue, uint32_t current, Apply apply,
+                    Screen& back);
+        uint32_t value() const; // the entry, in um in mm mode
 
         // 0..9 are the digit keys
         enum : uint8_t { K_DOT = 10, K_DEL, K_CANCEL, K_OK, K_COUNT };
@@ -33,8 +41,10 @@ namespace ui::screens
         uint32_t maxValue   = 0;
         Apply apply         = nullptr;
         Screen* back        = nullptr;
-        char text[8]        = "";
+        char text[16]       = "";
         bool fresh          = true; // showing the current value; first digit replaces it
+        bool mm             = false;
+        uint8_t decimals    = 3; // mm mode
         const char* error   = nullptr;
     };
 

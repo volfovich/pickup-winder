@@ -199,7 +199,7 @@ namespace traverse
         {
             if (mode == Mode::Follow) return "not while winding";
             if (homing != Homing::None || mode == Mode::Move) return "traverse is moving";
-            if (!tmc::traverse.ready()) return "traverse driver not ready - check 24 V, then re-init";
+            if (!tmc::traverse.ready()) return "guide driver not ready - check 24 V, re-init";
             return nullptr;
         }
     }

@@ -38,11 +38,19 @@ namespace ui::screens
 
     void Running::drawInfo()
     {
-        char rpm[24], elapsed[16], eta[24], t[12];
+        char rpm[24], elapsed[24], eta[24], t[12];
         const winder::Settings& s = winder::runSettings();
 
         snprintf(rpm, sizeof(rpm), "%.1f rpm", winder::measuredRpm());
-        snprintf(elapsed, sizeof(elapsed), "%s", fmtDuration(winder::windingMs(), t, sizeof(t)));
+        // With the guide: which layer, instead of the elapsed time
+        if (app::traverseRun())
+        {
+            const traverse_math::Pattern& p = app::runPattern();
+            uint32_t layers = (winder::targetSteps() / STEPS_PER_REV + p.turnsPerLayer - 1) / p.turnsPerLayer;
+            snprintf(elapsed, sizeof(elapsed), "layer %lu/%lu", traverse_math::layerOf(p, winder::stepsDone()) + 1,
+                     layers);
+        }
+        else snprintf(elapsed, sizeof(elapsed), "%s", fmtDuration(winder::windingMs(), t, sizeof(t)));
 
         // Time left at the timer's actual cruise speed (ramps are short)
         uint32_t left    = winder::targetSteps() - winder::stepsDone();

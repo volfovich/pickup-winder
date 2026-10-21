@@ -56,8 +56,21 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 4. `jog 1` / `jog -1` measured with calipers: 1.00 mm each.
 5. Keep a hand near the 24 V switch: `home`. It approaches the switch, backs off, re-approaches slowly and parks at 0.5 mm. Repeat `home` 10×: the position repeats.
 6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end.
-7. Set `wire`, `width`, `offset` for a real bobbin, `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals at the flanges; both pulse checks `OK`.
-8. `stop` mid-layer, then `resume`: the guide continues exactly where it was.
+7. **Teach the bobbin** (see below): mount a bobbin; on the Guide screen jog until the wire meets the inside of flange 1, tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. Check with **GO TO FLANGE** (tap twice: flange 1, then flange 2) that the wire lines up with both. Set `awg`, `insulation`, `margin` on the Bobbin screen.
+8. `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals: they should stay one margin inside each flange. Both pulse checks `OK`.
+9. `stop` mid-layer, then `resume`: the guide continues exactly where it was.
+
+## How the bobbin is located
+
+The bobbin sits on its mount on the winder motor. The wire comes from the tensioner over the two V-pulleys on the traverse carriage onto the bobbin. The firmware only knows the **carriage position on the rail** (mm from the home switch); it can't know where the bobbin is relative to the rail. So the bobbin is **taught**:
+
+- **Flange 1** is the flange nearer the rail's home end; **flange 2** the other one.
+- For each, jog the carriage until the wire from the pulleys meets the flange's **inner** face, and tap SET FLANGE 1 / 2. The stored value is that carriage position.
+- The **inner width** follows: flange 2 − flange 1. It can also be typed if you know it (that moves flange 2).
+- Setting flange 1 again keeps flange 2 where it was.
+- Teach once per bobbin type / mount setup. Redo it only if the rail, the mount or the bobbin type changes.
+
+With the **margin** kept clear inside both flanges, the guide winds from flange 1 + margin to flange 2 − margin.
 
 ## How it works
 
@@ -66,8 +79,9 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 It is not an independently timed motion. For spindle step count `S` (3200 per turn):
 
 ```
-pitch  = wire diameter incl. insulation           e.g. 0.071 mm for 42 AWG
-N      = floor(width / pitch)                      turns per layer
+pitch  = wire diameter incl. insulation           from AWG + insulation, e.g. 0.071 mm
+start  = flange + margin                           near edge of the winding
+N      = floor((width − 2 · margin) / pitch)       turns per layer
 layer  = S / (N · 3200)
 u      = S mod (N · 3200)                          spindle steps into this layer
 off    = u · pitch / 3200                          guide travel into this layer
@@ -75,7 +89,7 @@ x      = start + off                               layers moving away from home
 x      = start + N · pitch − off                   layers moving toward home
 ```
 
-- `start` is the near (home-side) edge of the winding, the `offset` setting. The first layer's direction is the `layer away|toward` setting.
+- `flange` is flange 1's taught carriage position, `width` the inner width (flange 2 − flange 1), and `margin` is kept clear inside both flanges. The first layer's direction is the `layer away|toward` setting.
 - `src/traverse_math.h` does this in integer maths: pitch in Q16 traverse steps per turn, 64-bit products. It has no Arduino dependencies, so the host simulation compiles the same file.
 - **Host test** (11,000 turns, 7 cases from 20 µm wire on a 48 mm bobbin to 500 µm wire with 2 turns per layer):
   - reversals land exactly on `start` and `start + N · pitch`;
@@ -113,7 +127,7 @@ Before homing, `jog` works without limits but at most ±5 mm per command; `goto`
 
 1. **START** checks the spindle (as without the traverse), then:
    - the traverse driver is ready and homed;
-   - the winding fits the slide (`offset + N × wire ≤ 50 mm`);
+   - there is room between the margins, and the bobbin is on the slide (`flange + width ≤ 50 mm`);
    - the guide speed `wire × RPM / 60` is ≤ 6 mm/s;
    - the traverse driver has no fault.
 2. The guide **moves to the start position** `x(0)`. On the screen START becomes **CANCEL** meanwhile; serial `stop` cancels too.
@@ -124,15 +138,20 @@ Before homing, `jog` works without limits but at most ±5 mm per command; `goto`
 
 ### Settings and commands
 
-Saved in EEPROM (settings version 2; version 1 settings migrate with the traverse off):
+Saved in EEPROM (settings version 3; older settings keep the spindle values, the guide goes to its defaults). Lengths are kept in 0.1 mm steps. Also on the Bobbin screen.
 
 | Command | Setting | Range / default |
 |---|---|---|
 | `traverse on\|off` | use the guide for winding | off |
-| `wire MM` | wire Ø including insulation = the pitch | 0.020–0.500, default 0.071 (42 AWG) |
-| `width MM` | winding width between the flanges | 1–48, default 12 |
-| `offset MM` | near flange of the winding, from home | 0–50, default 5 |
+| `awg 42\|43\|44` | wire size | 42 |
+| `insulation single\|heavy` | insulation build (sets the diameter with the AWG) | single |
+| `flange1 MM\|here` | carriage position where the wire meets flange 1's inner face; `here` = the current position; keeps flange 2 | 0–48, default 5.0 |
+| `flange2 MM\|here` | same for flange 2; sets the inner width | flange 1 + 2 … 50, default 17.0 |
+| `width MM` | inner width, flange to flange (moves flange 2) | 2–48, default 12.0 |
+| `margin MM` | kept clear inside both flanges | 0–5, default 1.0 |
 | `layer away\|toward` | first layer direction | away |
+
+Wire diameters including insulation (`WIRE_SIZES` in `config.h`; nominal, adjust to your wire): single build 42 = 0.071, 43 = 0.063, 44 = 0.056 mm; heavy build 42 = 0.076, 43 = 0.069, 44 = 0.061 mm.
 
 Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `status` (homed, position, layer n / N during a run), `drv` (both drivers).
 
@@ -145,7 +164,7 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 - [x] Pause / resume: done in UI-4; the guide needs nothing extra
 - [x] Settings in EEPROM, serial commands, traverse pulse check and lag in the summary
 - [ ] Hardware bring-up (checklist above)
-- [ ] UI-6: Bobbin and Jog / Home screens, layer n / N on Running (see [UI.md](UI.md))
+- [x] UI-6: Bobbin and Guide screens, layer n / N on Running, guide pulse check on Done (see [UI.md](UI.md)); tested on hardware only once the guide is wired
 
 ## Tests (on hardware)
 

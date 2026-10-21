@@ -102,7 +102,9 @@ pio device monitor      # serial console, 115200, local echo on
 | `traverse on\|off` | idle | use the wire guide for winding (default off) |
 | `home` | idle | find the home switch (motor end = 0 mm) |
 | `jog MM` / `goto MM` | idle | move the guide, e.g. `jog -0.5`, `goto 12` (goto needs homing) |
-| `wire MM` / `width MM` / `offset MM` | idle | wire Ø incl. insulation, winding width, near flange from home |
+| `awg 42\|43\|44` / `insulation single\|heavy` | idle | wire size and insulation (sets the pitch) |
+| `flange1 MM\|here` / `flange2 MM\|here` | idle | taught carriage positions of the bobbin's flanges (see TRAVERSE.md) |
+| `width MM` / `margin MM` | idle | inner width (moves flange 2), margin inside both flanges (0.1 mm steps) |
 | `layer away\|toward` | idle | direction of the first layer |
 | `endstop` | any time | home switch state (to check its polarity) |
 | `stop` | any time | ramped stop — the count stays exact |

@@ -19,7 +19,7 @@ namespace ui::screens
      private:
         void load(); // settings + lock state -> button values
 
-        enum : uint8_t { F_TURNS, F_RPM, F_ACCEL, F_DIR, BTN_BACK, BTN_TOUCH, BTN_COUNT };
+        enum : uint8_t { F_TURNS, F_RPM, F_ACCEL, F_DIR, BTN_BACK, BTN_BOBBIN, BTN_DIAG, BTN_COUNT };
         Button buttons[BTN_COUNT];
         ButtonGroup group;
         char values[4][16];

@@ -2,7 +2,7 @@
 
 A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
 
-Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). Next: traverse bring-up ([TRAVERSE.md](TRAVERSE.md)), then UI-6. Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+Status: **UI-1 to UI-5 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume, Driver screen). **UI-6 (traverse screens) written**; it can only be fully tested once the guide is wired ([TRAVERSE.md](TRAVERSE.md)). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -69,7 +69,7 @@ src/
 ```
 
 ### `app`: the shared layer (refactor out of `main.cpp`)
-- It holds the **settings struct**: turns, rpm, accel, direction, and later wire Ø, bobbin width and start offset. Settings are **saved in EEPROM** with a version number and checksum. If the data is invalid, it falls back to the defaults in `config.h`.
+- It holds the **settings struct**: turns, rpm, accel, direction, spindle current, and the guide settings (AWG, insulation, bobbin width, margin, flange). Settings are **saved in EEPROM** with a version number and checksum. If the data is invalid, it falls back to the defaults in `config.h`.
 - **Actions:** `setTurns`, `setRpm`, `setAccel`, `setDir`, `start`, `stop`, `resume`, `finish`, `reinitDriver`, `release`.
 - Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 10..1500"` or `"accel 327..423 not supported"`. Serial prints that text and the UI shows it.
 - The serial console's behaviour doesn't change.
@@ -114,18 +114,19 @@ Mockups are 320 × 240 landscape. `[ ... ]` is a button. Every screen has a **st
 ### Idle (home)
 ```
 +--------------------------------------------------+
-| IDLE                         ● driver ready      |
+| IDLE                         ● ready - motor free|
 +--------------------------------------------------+
-|  Turns      8000                                 |
+|  Turns      8,000               Dir  CW          |
 |  RPM        1500   (actual 1489.7)               |
-|  Accel      600 RPM/s       Dir  CW              |
+|  Bobbin     42 AWG, 12.0 mm, 22 layers           |
 |                                                  |
 |  +--------------------------------------------+  |
 |  |                 S T A R T                  |  |
 |  +--------------------------------------------+  |
-|  [   SETUP   ]                  [  DRIVER   ]    |
+|  [      SETUP      ]       [      GUIDE      ]   |
 +--------------------------------------------------+
 ```
+- **Bobbin** shows what will be wound: AWG (" H" for heavy insulation), the bobbin's inner width and the number of layers, or "guide off - by hand". Accel is in Setup only; the driver screens are in Setup → Diagnostics.
 
 ### Setup
 Tap a value to edit it with the keypad. Direction toggles on tap.
@@ -138,7 +139,7 @@ Tap a value to edit it with the keypad. Direction toggles on tap.
 |  [ Accel (RPM/s)     600 ]                       |
 |  [ Direction          CW ]                       |
 |                                                  |
-|  [   BACK   ]                                    |
+|  [ BACK ] [ BOBBIN ] [    DIAGNOSTICS     ]      |
 +--------------------------------------------------+
 ```
 
@@ -154,7 +155,7 @@ Shows the allowed range. On OK, the value goes through `app` validation; an erro
 |   [     0     ]       [  OK  ]                   |
 +--------------------------------------------------+
 ```
-The `.` key is enabled only for decimal fields (wire Ø, width and offset, later).
+The `.` key is enabled only for lengths in mm (bobbin width, margin, flange), with one decimal (0.1 mm).
 
 ### Running
 ```
@@ -219,9 +220,52 @@ Open-load flags are not shown: the datasheet says they are often set falsely at 
 
 Each UART read takes about 5 ms (TMCStepper waits 2 ms before and after the reply), so the screen reads **one register per loop pass** instead of all six at once. Reads pause while the motor turns; the fault watch owns the UART then.
 
-Buttons: **[RE-INIT DRIVER]** and **[BACK]**. A failed re-init shows on the first line ("no response" or "NOT CONFIGURED").
+Opened from Diagnostics for one driver (spindle or guide); the first line names it. Buttons: **[RE-INIT DRIVER]** and **[BACK]** (to Diagnostics). A failed re-init shows on the first line ("no response" or "NOT CONFIGURED").
 
 START also checks the driver before a run, as RESUME already did. So a driver that lost its configuration (e.g. 24 V switched off and on while idle) refuses the run with "driver was reset" instead of faulting 100 ms into it.
+
+### Bobbin (UI-6)
+Wire guide settings, from **Setup → BOBBIN** or **Guide → BOBBIN**. Locked during a run.
+```
++--------------------------------------------------+
+| BOBBIN                       ● ready - motor free|
++--------------------------------------------------+
+| [ Guide        ON ]   [ First       away ]       |
+| [ AWG          42 ]   [ Insul.    single ]       |
+| [ Margin      1.0 ]   [ Inner w.    12.0 ]       |
+| [ Flanges (rail mm)           5.0 - 17.0 ]       |
+|   0.071 mm wire: 140 turns/layer, 22 layers      |
+|  [     BACK     ]          [     GUIDE    ]      |
++--------------------------------------------------+
+```
+- **Guide**, **First**, **AWG** (42 → 43 → 44) and **Insul.** (single / heavy) change on tap. The wire diameter including insulation comes from the table in `config.h` and is the pitch per turn.
+- **Margin** is kept clear inside **both** flanges (default 1.0 mm). **Inner w.** is the inner width, flange to flange; both open the keypad in mm with one decimal.
+- **Flanges** are the carriage positions on the rail where the wire meets each flange's inner face. They are **taught on the Guide screen** (tapping this row opens it); see [TRAVERSE.md](TRAVERSE.md#how-the-bobbin-is-located). Teaching flange 2 sets the inner width; typing the width moves flange 2.
+- The summary line shows the wire, turns per layer and layers for the set turns, or in red why it won't fit (no room between the margins, bobbin past 50 mm, guide too slow for the RPM).
+
+### Guide (UI-6)
+Jog / home, from **Idle → GUIDE** or **Bobbin → GUIDE**.
+```
++--------------------------------------------------+
+| GUIDE                        ● ready - motor free|
++--------------------------------------------------+
+|  Position   12.345 mm                            |
+|        homed  -  endstop open                    |
+| [-10][ -1][-0.1][+0.1][ +1][+10]                 |
+| [  HOME  ] [   SET    ] [   SET    ]             |
+|            [ FLANGE 1 ] [ FLANGE 2 ]             |
+|  [ BOBBIN ] [  GO TO FLANGE 1  ] [ BACK ]        |
++--------------------------------------------------+
+```
+- Jog in mm: minus is toward home (the motor), plus is away. Before homing, the firmware allows at most ±5 mm per jog.
+- **HOME** becomes **STOP** while homing or moving.
+- **Teaching the bobbin:** jog until the wire meets the inside of flange 1 (the one nearer home), tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. The state line confirms, e.g. "flange 2 set at 17.0 mm - inner width 12.0". Positions round to 0.1 mm.
+- **GO TO FLANGE** moves to flange 1, then flange 2 on the next tap (the label shows which), to check that the wire lines up with both. All three need homing.
+- The state line shows homed / NOT HOMED and the endstop, "guide driver not found" if it doesn't answer, or homing errors for 5 s.
+- On **Idle**, the GUIDE button turns orange as **HOME GUIDE!** while the guide is switched on but not homed, because START would refuse.
+- **Running** shows **layer n / N** in the middle of the info line (instead of the elapsed time) when the guide is used. **Done** shows the spindle and guide pulse checks on two lines.
+### Diagnostics (UI-6)
+From **Setup → DIAGNOSTICS**: firmware version, loop max, spindle (ready, motor free / holding, current), guide (driver found, homed, position), endstop and uptime, refreshed twice a second. Buttons: **SPINDLE** and **GUIDE** open the driver screen for that TMC2209, **TOUCH TEST**, **BACK**. The driver screens and the touch test return here.
 
 ### Touch calibration
 - **When it runs:** automatically on first boot (no valid data in EEPROM), or if the screen is **held for 3 s during boot**.
@@ -229,7 +273,6 @@ START also checks the driver before a run, as RESUME already did. So a driver th
 - The result is saved to EEPROM, and a quick "tap anywhere" test screen confirms it.
 
 ### Later
-- **After the traverse ([TRAVERSE.md](TRAVERSE.md)):** a **Bobbin** screen (wire Ø, width, start offset), a **Jog/Home** screen (±0.1 / 1 / 10 mm buttons, HOME, live position) and **layer n / N** on the Running screen.
 - **Presets:** saved recipes (e.g. "Strat neck – 42AWG – 8000T"), possibly on the SD card.
 
 ## 6. Firmware change needed: pause / resume
@@ -249,7 +292,7 @@ Today `stop` ends the run. For RESUME:
 | **UI-3** | Idle, Setup, Keypad screens | Settings can be set and validated from the screen |
 | **UI-4** | Running, Paused, Done, Fault + pause/resume | Full wind from the screen; STOP / RESUME / FINISH work |
 | **UI-5** | Driver screen | Same data as serial `drv` |
-| **UI-6** | Traverse screens | After the traverse bring-up ([TRAVERSE.md](TRAVERSE.md)) |
+| **UI-6** | Bobbin and Guide screens, layer n / N, guide pulse check, driver toggle | Written; full test after the traverse bring-up ([TRAVERSE.md](TRAVERSE.md)) |
 | **UI-7** | Presets | Optional, SD card |
 
 ## 8. Verification
