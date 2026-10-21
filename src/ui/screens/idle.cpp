@@ -12,7 +12,8 @@ namespace ui::screens
     {
         constexpr uint32_t CHECK_MS = 250; // pick up changes made from serial
         constexpr int16_t VALUE_X   = 96;
-        constexpr int16_t MSG_Y     = 113;
+        constexpr int16_t MSG_Y     = 112; // between the settings and START
+        constexpr int16_t MSG_H     = 16;
         constexpr uint32_t MSG_MS   = 5000;
     }
 
@@ -63,7 +64,7 @@ namespace ui::screens
         if (msgUntilMs && millis() > msgUntilMs)
         {
             msgUntilMs = 0;
-            tft().fillRect(0, MSG_Y - 1, theme::W, 14, theme::BG);
+            drawMessage(nullptr, MSG_Y, MSG_H, theme::BG);
         }
         if (millis() - lastCheckMs < CHECK_MS) return;
         lastCheckMs = millis();
@@ -83,8 +84,7 @@ namespace ui::screens
                 // On success the screen manager switches to Running
                 if (const char* err = app::start())
                 {
-                    tft().fillRect(0, MSG_Y - 1, theme::W, 14, theme::BG);
-                    printCentered(err, 0, theme::W, MSG_Y, theme::FONT_SMALL, theme::ERR);
+                    drawMessage(err, MSG_Y, MSG_H, theme::ERR);
                     msgUntilMs = millis() + MSG_MS;
                 }
                 break;

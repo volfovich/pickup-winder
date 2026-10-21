@@ -27,8 +27,8 @@ namespace ui::screens
         {
             auto& d = tft();
             d.fillRect(50, 80, 220, 60, theme::BG);
-            printCentered(line1, 50, 220, 88, theme::FONT_BODY, color);
-            if (line2) printCentered(line2, 50, 220, 112, theme::FONT_BODY, theme::MUTED);
+            printFit(line1, 50, 220, 88, theme::FONT_BODY, color);
+            if (line2) printFit(line2, 50, 220, 112, theme::FONT_BODY, theme::MUTED);
         }
     }
 

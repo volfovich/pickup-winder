@@ -4,9 +4,9 @@
 #include "ui/screens/calibrate.h"
 #include "ui/screens/done.h"
 #include "ui/screens/fault.h"
-#include "ui/screens/idle.h"
 #include "ui/screens/paused.h"
 #include "ui/screens/running.h"
+#include "ui/screens/splash.h"
 #include "ui/theme.h"
 #include "ui/touch.h"
 #include "ui/widgets.h"
@@ -30,6 +30,7 @@ namespace ui
         constexpr uint32_t BOOT_HOLD_MS = 3000;
         bool bootHoldArmed              = false;
         uint32_t bootMs                 = 0;
+        bool bootDone                   = false;
 
         uint32_t loopMax      = 0;
         uint32_t loopMaxShown = 0;
@@ -82,12 +83,12 @@ namespace ui
         display.begin();
         display.setRotation(DISPLAY_ROTATION);
         if (!display.useFrameBuffer(true)) Serial.println("UI: frame buffer allocation FAILED");
+        display.setTextWrap(false); // too-wide text is clipped, never wrapped onto what is below
         touch::begin(busBusy);
 
         bootMs        = millis();
         bootHoldArmed = touch::calibrated() && touch::touchedNow();
-        if (!touch::calibrated()) startCalibration();
-        else show(screens::idle);
+        show(screens::splash);
         display.updateScreen(); // first frame synchronously
         dirty = false;
     }
@@ -113,6 +114,16 @@ namespace ui
         if (current) current->update();
         refreshStatusBar();
         pushFrame();
+    }
+
+    void markBooted()
+    {
+        bootDone = true;
+    }
+
+    bool booted()
+    {
+        return bootDone;
     }
 
     void show(Screen& s)

@@ -11,7 +11,8 @@ namespace ui::screens
 
     namespace
     {
-        constexpr int16_t MSG_Y = 160;
+        constexpr int16_t MSG_Y = 154; // two small lines above the buttons
+        constexpr int16_t MSG_H = 32;
     }
 
     Fault::Fault()
@@ -38,16 +39,10 @@ namespace ui::screens
         snprintf(line, sizeof(line), "stopped at %.2f / %s turns", winder::turnsDone(),
                  fmtThousands(winder::targetSteps() / STEPS_PER_REV, a, sizeof(a)));
         printAt(line, 12, y, theme::FONT_BODY, theme::FG);
-        printAt("The driver is disabled. Fix the cause, then re-init.", 12, y + 22, theme::FONT_SMALL, theme::MUTED);
+        printAt("Driver disabled. Fix the cause, then re-init.", 12, y + 22, theme::FONT_SMALL, theme::MUTED);
 
         group.reset();
         group.drawAll();
-    }
-
-    void Fault::drawMessage(const char* text, uint16_t color)
-    {
-        tft().fillRect(0, MSG_Y - 2, theme::W, 24, theme::BG);
-        printWrapped(text, 12, MSG_Y, theme::W - 24, 13, theme::FONT_SMALL, color);
     }
 
     void Fault::onTouch(const touch::Event& e)
@@ -55,9 +50,9 @@ namespace ui::screens
         switch (group.handle(e))
         {
             case BTN_REINIT:
-                drawMessage("configuring driver...", theme::MUTED);
-                if (const char* err = app::reinitDriver()) drawMessage(err, theme::ERR);
-                else drawMessage("driver configured and verified", theme::OK);
+                drawMessage("configuring driver...", MSG_Y, MSG_H, theme::MUTED);
+                if (const char* err = app::reinitDriver()) drawMessage(err, MSG_Y, MSG_H, theme::ERR);
+                else drawMessage("driver configured and verified", MSG_Y, MSG_H, theme::OK);
                 break;
             case BTN_OK: show(idle); break;
             default: break;

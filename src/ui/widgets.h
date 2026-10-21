@@ -12,7 +12,7 @@ namespace ui
     struct Button
     {
         int16_t x, y, w, h;
-        const char* label;
+        const char* label;            // may hold one '\n' for a two-line label
         uint16_t color     = theme::BUTTON;
         bool enabled       = true;
         const char* value  = nullptr; // set: drawn as a field (label left, value right)
@@ -47,6 +47,16 @@ namespace ui
     void refreshStatusBar();
 
     int16_t textWidth(const char* text, const ILI9341_t3_font_t& font);
+    // The largest font, starting at `preferred` and going down the ladder
+    // 28B, 24B, 16B, 14B, 12, 11, in which text is at most maxW wide (the
+    // smallest one if none is).
+    const ILI9341_t3_font_t& fitFont(const char* text, int16_t maxW, const ILI9341_t3_font_t& preferred);
+    // Text centred in [x, x + w) in the largest font that fits.
+    void printFit(const char* text, int16_t x, int16_t w, int16_t y, const ILI9341_t3_font_t& preferred, uint16_t color);
+    // A message in the full-width area [y, y + h): FONT_BODY on one line if it
+    // fits, else FONT_SMALL on one line, else FONT_SMALL on two lines if the
+    // area is tall enough. Clears the area first; text may be nullptr.
+    void drawMessage(const char* text, int16_t y, int16_t h, uint16_t color);
     void printAt(const char* text, int16_t x, int16_t y, const ILI9341_t3_font_t& font, uint16_t color);
     void printCentered(const char* text, int16_t x, int16_t w, int16_t y, const ILI9341_t3_font_t& font, uint16_t color);
     void printRight(const char* text, int16_t right, int16_t y, const ILI9341_t3_font_t& font, uint16_t color);
@@ -61,8 +71,8 @@ namespace ui
 
     // Run display shared by the Running / Paused screens: big turn counter
     // with the target, and a progress bar under it.
-    constexpr int16_t COUNTER_Y  = 32;
-    constexpr int16_t PROGRESS_Y = 102;
+    constexpr int16_t COUNTER_Y  = 30;
+    constexpr int16_t PROGRESS_Y = 108; // below the 60 pt comma (bottom at COUNTER_Y + 74)
     void drawTurnCounter(uint32_t turns, uint32_t target, uint16_t color);
     void drawProgressBar(uint32_t done, uint32_t total, uint16_t color);
 }

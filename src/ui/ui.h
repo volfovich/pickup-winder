@@ -6,9 +6,15 @@ namespace ui
 {
     class Screen;
 
-    // Starts the display and touch. Shows touch calibration on first boot
-    // (or when the screen is held for 3 s during boot), else the test screen.
+    // Starts the display and touch and shows the splash screen, which then
+    // leads to touch calibration on first boot (or when the screen is held
+    // for 3 s during boot), else to Idle.
     void begin();
+
+    // setup() calls markBooted() when it is done (driver configured); the
+    // splash screen waits for it. ui::update() may run before that.
+    void markBooted();
+    bool booted();
 
     // Call every loop pass: touch sampling, events, screen updates.
     void update();

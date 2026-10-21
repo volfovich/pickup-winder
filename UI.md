@@ -87,6 +87,13 @@ src/
   - UI-3, frame buffer: **0.4 ms**.
 - Why the frame buffer: at 30 MHz the display fills only about 1.9 Mpx/s, so 5 ms is about 9,000 pixels. A 60 pt turn counter alone is about 10,000 pixels, so direct drawing would have flickered and broken the budget.
 
+### Text fitting
+- **Text wrap is off** (`setTextWrap(false)`). The library default wraps a too-wide string to x = 0 one line down, right over the next element. Now too-wide text is clipped at the screen edge, and `printAt` logs `UI: text too wide: "..."` to serial.
+- The t3n fonts are bigger than their names suggest. Measured: Arial 12 has a 12 px cap height, 18 px line spacing and ink to +15; Arial 16 Bold has 16 / 23 / +20; the 60 pt comma reaches +74.
+- Buttons fit their label down a font ladder (16B → 14B → 12) and accept a two-line label (`"\n"`). Messages use one shared helper: 12 on one line, else 11, else 11 on two lines where there is room.
+- The turn counter uses 60 pt up to 9,999 turns and 48 pt for 5-digit targets. The choice follows the target, so it never changes mid-run.
+- Every fixed string and the worst-case dynamic ones (11,000 turns, `MISMATCH (+512)`, all fault texts) were measured against the real font data on the host.
+
 ### Touch handling
 - `T_IRQ` gives a quick "touched?" check; the coordinates are only read while touched.
 - A pressure threshold and 2 matching samples in a row filter out resistive-panel noise.
@@ -96,6 +103,13 @@ src/
 ## 5. Screens
 
 Mockups are 320 × 240 landscape. `[ ... ]` is a button. Every screen has a **status bar** at the top: title, driver state (● ready / ○ not ready / ✖ fault) and an over-temperature warning.
+
+### Splash (boot)
+"Pickup Winder **NG**" with "version 1.0" (`FIRMWARE_NAME` / `FIRMWARE_VERSION` in `config.h`), and a pickup bobbin whose coil winds itself up in 1.5 s.
+- The bottom line shows "driver ready" or "driver not ready - check 24 V" once start-up is done.
+- It also covers the up-to-3 s wait for USB serial, so the screen is never blank at power-up.
+- After 2.5 s, or on a tap, it goes to Idle, or to touch calibration on first boot.
+- Holding the screen shows "keep holding to recalibrate touch"; at 3 s, calibration starts.
 
 ### Idle (home)
 ```

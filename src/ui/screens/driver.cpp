@@ -13,7 +13,8 @@ namespace ui::screens
         constexpr uint32_t REFRESH_MS = 500;
         constexpr int16_t LINE_Y      = 32;
         constexpr int16_t LINE_DY     = 17;
-        constexpr int16_t VALUE_X     = 78;
+        constexpr int16_t VALUE_X     = 76;
+        constexpr int16_t VALUE_W     = theme::W - VALUE_X - 4;
         const char* const LABELS[]    = {"Driver", "Mode", "Chopper", "Current", "Now", "Motor", "Temp", "Faults", "MSCNT"};
 
         // Appends ", item" (or "item" first) to a fault list
@@ -56,7 +57,7 @@ namespace ui::screens
 
         int16_t y = LINE_Y + i * LINE_DY;
         tft().fillRect(VALUE_X, y - 2, theme::W - VALUE_X, LINE_DY, theme::BG);
-        printAt(text, VALUE_X, y, theme::FONT_BODY, color);
+        printAt(text, VALUE_X, y, fitFont(text, VALUE_W, theme::FONT_BODY), color);
     }
 
     void Driver::drawStatus(bool comm)
@@ -66,30 +67,29 @@ namespace ui::screens
 
         if (!comm)
         {
-            drawLine(0, "no response - check 24 V and UART", theme::ERR);
+            drawLine(0, "NO RESPONSE - 24 V off?", theme::ERR);
             for (uint8_t i = 1; i < LINES; i++) drawLine(i, "", theme::FG);
             return;
         }
 
-        snprintf(t, sizeof(t), "TMC2209 v0x%02X, %s", s.version, tmc::ready() ? "configured" : "NOT CONFIGURED");
+        snprintf(t, sizeof(t), "v0x%02X  %s", s.version, tmc::ready() ? "configured" : "NOT CONFIGURED");
         drawLine(0, t, tmc::ready() ? theme::OK : theme::WARN);
 
-        snprintf(t, sizeof(t), "%s, %u microsteps%s", s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps,
-                 s.intpol ? ", intpol" : "");
+        snprintf(t, sizeof(t), "%s, %u microsteps", s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps);
         drawLine(1, t, s.spreadCycle ? theme::FG : theme::ERR);
 
         snprintf(t, sizeof(t), "toff %u  hstrt %u  hend %u  tbl %u", s.toff, s.hstrt, s.hend, s.tblClocks);
         drawLine(2, t, theme::FG);
 
-        snprintf(t, sizeof(t), "%u mA run, %u mA hold (RMS)", s.runMa, s.holdMa);
+        snprintf(t, sizeof(t), "%u run / %u hold mA", s.runMa, s.holdMa);
         drawLine(3, t, theme::FG);
 
-        snprintf(t, sizeof(t), "%u mA (CS %u), %s", s.currentMa, s.csActual, s.standstill ? "standstill" : "moving");
+        snprintf(t, sizeof(t), "%u mA (CS %u) %s", s.currentMa, s.csActual, s.standstill ? "standstill" : "moving");
         drawLine(4, t, theme::FG);
 
         drawLine(5, s.enPinOff ? "free (driver off)" : "enabled (holding)", s.enPinOff ? theme::MUTED : theme::FG);
 
-        if (s.ot) drawLine(6, "OVER-TEMPERATURE (shut down)", theme::ERR);
+        if (s.ot) drawLine(6, "OVER-TEMP - shut down", theme::ERR);
         else if (s.otpw) drawLine(6, "pre-warning (hot)", theme::WARN);
         else if (s.tempOver)
         {
@@ -101,8 +101,8 @@ namespace ui::screens
         // Open load (ola/olb) is left out: the datasheet says it is often
         // flagged falsely at standstill, and this screen only shows idle.
         t[0] = '\0';
-        if (s.s2ga || s.s2gb) append(t, sizeof(t), "short to GND");
-        if (s.s2vsa || s.s2vsb) append(t, sizeof(t), "short to supply");
+        if (s.s2ga || s.s2gb) append(t, sizeof(t), "short GND");
+        if (s.s2vsa || s.s2vsb) append(t, sizeof(t), "short VS");
         if (s.reset) append(t, sizeof(t), "reset - re-init");
         if (s.uvCp) append(t, sizeof(t), "undervoltage");
         if (s.drvErr) append(t, sizeof(t), "drv_err");

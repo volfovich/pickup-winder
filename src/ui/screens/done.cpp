@@ -39,7 +39,7 @@ namespace ui::screens
             headline = "COUNT MISMATCH";
             color    = theme::ERR;
         }
-        printCentered(headline, 0, theme::W, 36, theme::FONT_LARGE, color);
+        printFit(headline, 8, theme::W - 16, 36, theme::FONT_LARGE, color);
 
         // Whole turns, plus the fraction when the run ended between turns
         if (n % STEPS_PER_REV)

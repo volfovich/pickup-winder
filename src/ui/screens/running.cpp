@@ -31,7 +31,7 @@ namespace ui::screens
         if (shownStopping)
         {
             b.color = theme::WARN;
-            b.label = "STOPPING - TAP TO STOP NOW";
+            b.label = "STOPPING...\nTAP AGAIN TO STOP NOW";
         }
         b.draw();
     }

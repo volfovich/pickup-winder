@@ -9,7 +9,8 @@ namespace ui::screens
 
     namespace
     {
-        constexpr int16_t MSG_Y          = 124;
+        constexpr int16_t MSG_Y          = 121; // between the progress bar and the buttons
+        constexpr int16_t MSG_H          = 26;
         constexpr uint32_t CONFIRM_MS    = 3000;
         const char* const FINISH_LABEL   = "FINISH";
         const char* const CONFIRM_LABEL  = "TAP AGAIN";
@@ -34,18 +35,12 @@ namespace ui::screens
         uint32_t leftTurns = (winder::targetSteps() - winder::stepsDone() + STEPS_PER_REV - 1) / STEPS_PER_REV;
         snprintf(text, sizeof(text), "%.2f turns done, %s to go", winder::turnsDone(),
                  fmtThousands(leftTurns, left, sizeof(left)));
-        drawMessage(text, theme::MUTED);
+        drawMessage(text, MSG_Y, MSG_H, theme::MUTED);
 
         confirmUntilMs           = 0;
         buttons[BTN_FINISH].label = FINISH_LABEL;
         group.reset();
         group.drawAll();
-    }
-
-    void Paused::drawMessage(const char* text, uint16_t color)
-    {
-        tft().fillRect(0, MSG_Y - 2, theme::W, 18, theme::BG);
-        printCentered(text, 0, theme::W, MSG_Y, theme::FONT_BODY, color);
     }
 
     void Paused::update()
@@ -66,7 +61,7 @@ namespace ui::screens
         {
             case BTN_RESUME:
                 // On success the screen manager switches to Running
-                if (const char* err = app::resume()) drawMessage(err, theme::ERR);
+                if (const char* err = app::resume()) drawMessage(err, MSG_Y, MSG_H, theme::ERR);
                 break;
             case BTN_FINISH:
                 if (!confirmUntilMs)
@@ -78,7 +73,7 @@ namespace ui::screens
                 }
                 else if (const char* err = app::finish())
                 {
-                    drawMessage(err, theme::ERR);
+                    drawMessage(err, MSG_Y, MSG_H, theme::ERR);
                 }
                 break;
             default: break;

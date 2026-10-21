@@ -176,7 +176,7 @@ namespace winder
             return msg;
         }
         int32_t endVSqr = TS4_START_V_SQR - 2 * (int32_t)rpmToStepsPerS(accelRpmPerS);
-        if (abs(endVSqr) < TS4_MIN_V_SQR) return "accel 327..423 RPM/s is not supported by the step timer";
+        if (abs(endVSqr) < TS4_MIN_V_SQR) return "accel 327..423 RPM/s: step timer limit";
         return nullptr;
     }
 
@@ -199,8 +199,8 @@ namespace winder
 
     const char* start(const Settings& s)
     {
-        if (inRun() || motor.moving()) return "a run is in progress — resume or finish it first";
-        if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
+        if (inRun() || motor.moving()) return "run in progress - resume or finish it";
+        if (!tmc::ready()) return "driver not ready - check 24 V, then re-init";
         tmc::Fault f = tmc::poll(nullptr); // e.g. 24 V switched off and on since the last re-init
         if (f != tmc::Fault::None) return tmc::faultName(f);
         if (const char* err = checkTurns(s.turns)) return err;
@@ -225,7 +225,7 @@ namespace winder
     const char* resume()
     {
         if (st != State::Paused) return "nothing to resume";
-        if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
+        if (!tmc::ready()) return "driver not ready - check 24 V, then re-init";
         tmc::Fault f = tmc::poll(nullptr);
         if (f != tmc::Fault::None) return tmc::faultName(f);
         beginSegment();

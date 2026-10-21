@@ -26,7 +26,7 @@ namespace app
         bool otWarned        = false;
         constexpr uint8_t COMM_FAILURES_TO_ABORT = 3;
 
-        constexpr const char* BUSY = "not allowed while winding — stop the run first";
+        constexpr const char* BUSY = "not allowed during a run";
 
         uint32_t checksum(const Stored& d)
         {
@@ -180,6 +180,6 @@ namespace app
     const char* reinitDriver()
     {
         if (winder::inRun()) return BUSY;
-        return tmc::begin() ? nullptr : "driver configuration failed — check the 24 V and UART wiring";
+        return tmc::begin() ? nullptr : "driver setup failed - check 24 V and UART";
     }
 }

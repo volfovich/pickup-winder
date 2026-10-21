@@ -2,6 +2,8 @@
 
 Guitar pickup coil winder firmware: a Teensy 4.0 drives a NEMA 17 spindle through a TMC2209 and stops on the **exact** preset turn count, up to 11,000 turns at up to 1500 RPM.
 
+Firmware: **Pickup Winder NG v1.0** (`FIRMWARE_NAME` / `FIRMWARE_VERSION` in `include/config.h`).
+
 ## Status
 
 **Step 1 — spindle motor control: done and tested on hardware.**

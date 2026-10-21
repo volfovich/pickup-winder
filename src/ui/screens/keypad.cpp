@@ -73,7 +73,8 @@ namespace ui::screens
     void Keypad::drawError()
     {
         tft().fillRect(ENTRY_X, ERROR_Y, ENTRY_W, ERROR_H, theme::BG);
-        if (error) printWrapped(error, ENTRY_X + 2, ERROR_Y, ENTRY_W - 4, 13, theme::FONT_SMALL, theme::ERR);
+        if (error) printWrapped(error, ENTRY_X + 2, ERROR_Y, ENTRY_W - 4, theme::FONT_SMALL.line_space,
+                                theme::FONT_SMALL, theme::ERR);
     }
 
     void Keypad::onTouch(const touch::Event& e)

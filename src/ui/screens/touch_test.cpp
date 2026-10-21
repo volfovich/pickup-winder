@@ -25,9 +25,9 @@ namespace ui::screens
 
     TouchTest::TouchTest()
         : buttons{
-              {8, 192, 96, 42, "CLEAR"},
-              {110, 192, 116, 42, "CALIBRATE"},
-              {232, 192, 80, 42, "BACK"},
+              {8, 192, 84, 42, "CLEAR"},
+              {98, 192, 132, 42, "CALIBRATE"},
+              {236, 192, 76, 42, "BACK"},
           },
           group(buttons, BTN_COUNT)
     {

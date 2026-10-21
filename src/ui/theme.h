@@ -29,6 +29,8 @@ namespace ui::theme
     constexpr uint16_t WARN       = rgb(255, 150, 0);
     constexpr uint16_t ERR        = rgb(230, 40, 40);
     constexpr uint16_t ACCENT     = rgb(0, 200, 230);
+    constexpr uint16_t COPPER     = rgb(200, 110, 50);
+    constexpr uint16_t COPPER_DK  = rgb(150, 75, 30);
 
     static const ILI9341_t3_font_t& FONT_SMALL  = Arial_11;
     static const ILI9341_t3_font_t& FONT_TITLE  = Arial_13_Bold;
@@ -39,4 +41,12 @@ namespace ui::theme
     static const ILI9341_t3_font_t& FONT_ENTRY  = Arial_24_Bold;
     static const ILI9341_t3_font_t& FONT_LARGE  = Arial_28_Bold;
     static const ILI9341_t3_font_t& FONT_BIG    = Arial_60_Bold;
+    static const ILI9341_t3_font_t& FONT_BIG5   = Arial_48_Bold; // 5-digit turn counts
+
+    // Height of a font's ink from the top of the caps to the bottom of the
+    // descenders (measured: Arial 11 -> 14, 12 -> 15, 16 Bold -> 20).
+    constexpr int16_t inkHeight(const ILI9341_t3_font_t& f)
+    {
+        return (f.cap_height * 5 + 3) / 4;
+    }
 }

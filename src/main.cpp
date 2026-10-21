@@ -179,16 +179,18 @@ namespace
 void setup()
 {
     Serial.begin(115200);
-    uint32_t t0 = millis();
-    while (!Serial && millis() - t0 < 3000) {}
+    winder::begin(); // driver EN pin to a defined (disabled) state first
+    ui::begin();     // splash screen, animated while we wait for USB serial
 
-    Serial.println("\nPickup winder");
+    uint32_t t0 = millis();
+    while (!Serial && millis() - t0 < 3000) ui::update();
+
+    Serial.println("\n" FIRMWARE_NAME " v" FIRMWARE_VERSION);
     app::begin();
-    winder::begin();
     tmc::begin();
-    ui::begin();
     printSettings();
     Serial.println("type 'help' for commands");
+    ui::markBooted();
 }
 
 void loop()

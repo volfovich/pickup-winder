@@ -16,7 +16,6 @@ namespace ui::screens
         void onTouch(const touch::Event& e) override;
 
      private:
-        void drawMessage(const char* text, uint16_t color);
 
         enum : uint8_t { BTN_RESUME, BTN_FINISH, BTN_COUNT };
         Button buttons[BTN_COUNT];

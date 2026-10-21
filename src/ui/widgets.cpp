@@ -11,6 +11,10 @@ namespace ui
         enum class MachineState : uint8_t { Unknown, NotReady, Ready, Winding, Paused };
         MachineState shownState = MachineState::Unknown;
 
+        // Font sizes for fitting text, largest first
+        const ILI9341_t3_font_t* const LADDER[] = {&Arial_28_Bold, &Arial_24_Bold, &Arial_16_Bold,
+                                                   &Arial_14_Bold, &Arial_12,      &Arial_11};
+
         MachineState machineState()
         {
             if (winder::isMoving()) return MachineState::Winding;
@@ -31,11 +35,22 @@ namespace ui
             int16_t ty = y + (h - theme::FONT_LABEL.cap_height) / 2;
             printAt(label, x + 12, ty, theme::FONT_LABEL, enabled ? theme::MUTED : theme::TEXT_OFF);
             printRight(value, x + w - 12, y + (h - theme::FONT_VALUE.cap_height) / 2, theme::FONT_VALUE, text);
+            return;
         }
-        else
-        {
-            printCentered(label, x, w, y + (h - theme::FONT_BUTTON.cap_height) / 2, theme::FONT_BUTTON, text);
-        }
+
+        // One or two lines, each centred, in a font that fits both
+        char lines[2][40];
+        const char* nl = strchr(label, '\n');
+        uint8_t n      = nl ? 2 : 1;
+        strlcpy(lines[0], label, nl ? min<size_t>(nl - label + 1, sizeof(lines[0])) : sizeof(lines[0]));
+        if (nl) strlcpy(lines[1], nl + 1, sizeof(lines[1]));
+        const char* wider = n == 2 && textWidth(lines[1], theme::FONT_BUTTON) > textWidth(lines[0], theme::FONT_BUTTON)
+                                ? lines[1]
+                                : lines[0];
+        const ILI9341_t3_font_t& f = fitFont(wider, w - 16, theme::FONT_BUTTON);
+        int16_t blockH             = (n - 1) * f.line_space + f.cap_height;
+        int16_t ty                 = y + (h - blockH) / 2;
+        for (uint8_t i = 0; i < n; i++) printCentered(lines[i], x, w, ty + i * f.line_space, f, text);
     }
 
     void ButtonGroup::drawAll() const
@@ -106,8 +121,52 @@ namespace ui
         return d.measureTextWidth(reinterpret_cast<const uint8_t*>(text));
     }
 
+    const ILI9341_t3_font_t& fitFont(const char* text, int16_t maxW, const ILI9341_t3_font_t& preferred)
+    {
+        if (textWidth(text, preferred) <= maxW) return preferred;
+        const ILI9341_t3_font_t* f = &preferred;
+        for (const ILI9341_t3_font_t* c : LADDER)
+        {
+            if (c->cap_height >= preferred.cap_height) continue;
+            f = c;
+            if (textWidth(text, *c) <= maxW) break;
+        }
+        return *f;
+    }
+
+    void printFit(const char* text, int16_t x, int16_t w, int16_t y, const ILI9341_t3_font_t& preferred, uint16_t color)
+    {
+        printCentered(text, x, w, y, fitFont(text, w, preferred), color);
+    }
+
+    void drawMessage(const char* text, int16_t y, int16_t h, uint16_t color)
+    {
+        constexpr int16_t MAX_W = theme::W - 16;
+        tft().fillRect(0, y, theme::W, h, theme::BG);
+        if (!text || !*text) return;
+
+        const ILI9341_t3_font_t& body  = theme::FONT_BODY;
+        const ILI9341_t3_font_t& small = theme::FONT_SMALL;
+        if (textWidth(text, body) <= MAX_W && theme::inkHeight(body) <= h)
+            printCentered(text, 0, theme::W, y + (h - theme::inkHeight(body)) / 2, body, color);
+        else if (textWidth(text, small) <= MAX_W || small.line_space + theme::inkHeight(small) > h)
+            printCentered(text, 0, theme::W, y + (h - theme::inkHeight(small)) / 2, small, color);
+        else
+            printWrapped(text, 8, y + (h - small.line_space - theme::inkHeight(small)) / 2, MAX_W, small.line_space,
+                         small, color);
+    }
+
     void printAt(const char* text, int16_t x, int16_t y, const ILI9341_t3_font_t& font, uint16_t color)
     {
+        // Debug aid: report text that runs off the screen (it is clipped,
+        // never wrapped). Each text is reported once in a row.
+        static char lastReported[48];
+        if (*text && (x < 0 || x + textWidth(text, font) > theme::W) && strncmp(text, lastReported, sizeof(lastReported) - 1))
+        {
+            strlcpy(lastReported, text, sizeof(lastReported));
+            Serial.printf("UI: text too wide at x %d: \"%s\"\n", x, text);
+        }
+
         auto& d = tft();
         d.setFont(font);
         d.setTextColor(color);
@@ -180,19 +239,23 @@ namespace ui
 
     void drawTurnCounter(uint32_t turns, uint32_t target, uint16_t color)
     {
-        // Number right-aligned so the layout never shifts; target beside it
-        constexpr int16_t NUMBER_RIGHT = 206;
+        // Number right-aligned so the layout never shifts; target beside it.
+        // The font follows the target, so it stays the same for the whole
+        // run: "9,999" is 200 px in 60 pt, "11,000" would be 243, so 5-digit
+        // targets use 48 pt (196 px), on the same baseline.
+        constexpr int16_t NUMBER_RIGHT = 212;
+        const ILI9341_t3_font_t& f     = target >= 10000 ? theme::FONT_BIG5 : theme::FONT_BIG;
+        int16_t baseline               = COUNTER_Y + theme::FONT_BIG.cap_height;
         char a[16], b[20], t[16];
-        tft().fillRect(0, COUNTER_Y, theme::W, PROGRESS_Y - COUNTER_Y - 4, theme::BG);
-        printRight(fmtThousands(turns, a, sizeof(a)), NUMBER_RIGHT, COUNTER_Y, theme::FONT_BIG, color);
+        tft().fillRect(0, COUNTER_Y, theme::W, PROGRESS_Y - COUNTER_Y - 2, theme::BG);
+        printRight(fmtThousands(turns, a, sizeof(a)), NUMBER_RIGHT, baseline - f.cap_height, f, color);
         snprintf(b, sizeof(b), "/ %s", fmtThousands(target, t, sizeof(t)));
-        int16_t y = COUNTER_Y + theme::FONT_BIG.cap_height - theme::FONT_VALUE.cap_height;
-        printAt(b, NUMBER_RIGHT + 8, y, theme::FONT_VALUE, theme::MUTED);
+        printAt(b, NUMBER_RIGHT + 8, baseline - theme::FONT_VALUE.cap_height, theme::FONT_VALUE, theme::MUTED);
     }
 
     void drawProgressBar(uint32_t done, uint32_t total, uint16_t color)
     {
-        constexpr int16_t X = 8, W = 304, H = 14;
+        constexpr int16_t X = 8, W = 304, H = 12;
         auto& d = tft();
         int16_t fill = total ? (int16_t)((uint64_t)(W - 4) * min(done, total) / total) : 0;
         d.drawRect(X, PROGRESS_Y, W, H, theme::MUTED);
