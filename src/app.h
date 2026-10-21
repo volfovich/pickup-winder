@@ -12,9 +12,9 @@ namespace app
 {
     void begin(); // loads settings from EEPROM (defaults if empty/invalid)
 
-    // Call every loop pass. Returns true once when a run has just finished
-    // (see winder::lastOutcome() / winder::printSummary()).
-    bool update();
+    // Call every loop pass. Returns winder::Event::Paused / Ended once when a
+    // run pauses or ends (see winder::lastOutcome() / winder::printSummary()).
+    winder::Event update();
 
     const winder::Settings& settings();
 
@@ -24,8 +24,10 @@ namespace app
     const char* setDir(winder::Dir dir);
 
     const char* start();
-    void stop();  // ramped stop, count stays exact
-    void estop(); // stop at the next step edge
+    const char* resume(); // wind the remaining turns of a paused run
+    const char* finish(); // end a paused run early
+    void stop();          // ramped stop → paused, count stays exact
+    void estop();         // stop at the next step edge → paused
 
     const char* release();      // disable the driver (motor free)
     const char* reinitDriver(); // re-run TMC2209 configuration

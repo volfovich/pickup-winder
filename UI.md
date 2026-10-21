@@ -2,7 +2,7 @@
 
 A standalone touch front panel for the winder, on the 2.8" ILI9341 + HR2046 touch screen. **Touch only: no hardware buttons.** USB serial stays available alongside it.
 
-Status: **UI-1, UI-2 and UI-3 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad screens). Next: UI-4 (Running / Paused / Done / Fault + pause/resume). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
+Status: **UI-1 to UI-4 done** (display + touch + calibration, shared `app` layer with EEPROM settings, Idle / Setup / Keypad, Running / Paused / Done / Fault with pause/resume). Next: UI-5 (Driver screen). Overall roadmap: [TBD.md](TBD.md). Current firmware: [README.md](README.md).
 
 ## 1. Goals and constraints
 
@@ -174,7 +174,7 @@ The `.` key is enabled only for decimal fields (wire Ø, width and offset, later
 +--------------------------------------------------+
 ```
 - **RESUME** winds the remaining turns. The count stays exact across pauses.
-- **FINISH** ends the run and shows the Done screen.
+- **FINISH** ends the run and shows the Done screen. It needs a **second tap within 3 s** ("TAP AGAIN"), because it can't be undone.
 
 ### Done
 ```
@@ -185,9 +185,10 @@ The `.` key is enabled only for decimal fields (wire Ø, width and offset, later
 |   steps 25,600,000 / 25,600,000                  |
 |   driver pulse check  OK                         |
 |   time 5:24                                      |
-|  [    NEW RUN    ]           [    SETUP    ]     |
+|  [      OK       ]           [    SETUP    ]     |
 +--------------------------------------------------+
 ```
+**OK** returns to Idle, where START begins the next run. It doesn't restart straight away, because the bobbin usually needs changing first, and a spindle that starts from a single tap on this screen would be easy to set off by accident.
 
 ### Fault
 A red screen with the fault name (e.g. "driver over-temperature" or "UART not responding"), **"count unreliable"**, and the turns done when it happened. Buttons: **[RE-INIT DRIVER]** and **[OK]** (back to Idle). The driver is already disabled at this point, as in step 1.

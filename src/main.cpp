@@ -13,19 +13,8 @@ namespace
     char line[64];
     size_t lineLen = 0;
 
-    // Speed is measured over the last RPM_WINDOW progress intervals (1 s) with
-    // microsecond timing, so one step more or less in the window is 0.02 rpm.
-    constexpr uint8_t RPM_WINDOW = 4;
-    struct Sample
-    {
-        uint32_t steps;
-        uint32_t us;
-    };
-    Sample samples[RPM_WINDOW + 1];
-    uint8_t sampleCount = 0;
-
     uint32_t lastProgressMs = 0;
-    bool wasRunning         = false;
+    bool wasMoving          = false;
 
     void printHelp()
     {
@@ -39,9 +28,12 @@ namespace
             "  start        start winding\n"
             "  release      disable the driver (motor free)\n"
             "  init         re-run TMC2209 configuration\n"
+            "While winding / paused:\n"
+            "  stop         ramped stop -> paused (count stays exact)\n"
+            "  estop        immediate stop -> paused\n"
+            "  resume       wind the remaining turns\n"
+            "  finish       end a paused run early\n"
             "Any time:\n"
-            "  stop         ramped stop (count stays exact)\n"
-            "  estop        immediate stop\n"
             "  status       settings and progress\n"
             "  drv          TMC2209 registers and status\n"
             "  calibrate    touch screen calibration\n"
@@ -63,9 +55,10 @@ namespace
         printSettings();
         Serial.printf("driver %s, %s\n", tmc::ready() ? "ready" : "NOT CONFIGURED",
                       winder::driverEnabled() ? "enabled" : "disabled");
-        if (winder::isRunning())
-            Serial.printf("RUNNING  turns %.2f / %lu  steps %lu / %lu\n", winder::turnsDone(),
-                          winder::targetSteps() / STEPS_PER_REV, winder::stepsDone(), winder::targetSteps());
+        if (winder::inRun())
+            Serial.printf("%s  turns %.2f / %lu  steps %lu / %lu\n", winder::isMoving() ? "RUNNING" : "PAUSED",
+                          winder::turnsDone(), winder::targetSteps() / STEPS_PER_REV, winder::stepsDone(),
+                          winder::targetSteps());
         else if (winder::lastOutcome() != winder::Outcome::None)
             winder::printSummary();
     }
@@ -93,7 +86,7 @@ namespace
     {
         uint32_t v;
         if (!parseUint(arg, v)) v = 0;
-        if (report(setter(v)) || !winder::isRunning()) printSettings();
+        if (report(setter(v)) || !winder::inRun()) printSettings();
     }
 
     void handleCommand(char* cmd)
@@ -107,10 +100,12 @@ namespace
 
         if (!strcmp(cmd, "stop"))
         {
-            if (winder::isRunning()) Serial.println("stopping (ramp down)...");
+            if (winder::isMoving()) Serial.println("stopping (ramp down)...");
             app::stop();
         }
         else if (!strcmp(cmd, "estop")) app::estop();
+        else if (!strcmp(cmd, "resume")) report(app::resume());
+        else if (!strcmp(cmd, "finish")) report(app::finish());
         else if (!strcmp(cmd, "status")) printStatus();
         else if (!strcmp(cmd, "drv")) tmc::printStatus();
         else if (!strcmp(cmd, "help")) printHelp();
@@ -131,12 +126,7 @@ namespace
         }
         else if (!strcmp(cmd, "start"))
         {
-            if (winder::isRunning())
-            {
-                report("already running");
-                return;
-            }
-            printSettings();
+            if (!winder::inRun()) printSettings();
             report(app::start()); // progress output starts in printProgress()
         }
         else if (!strcmp(cmd, "release"))
@@ -169,33 +159,20 @@ namespace
     // Progress lines for any run, whether started from serial or the screen.
     void printProgress()
     {
-        bool running = winder::isRunning();
-        if (running && !wasRunning)
+        bool moving = winder::isMoving();
+        if (moving && !wasMoving)
         {
-            const winder::Settings& s = app::settings();
-            Serial.println("winding...");
+            const winder::Settings& s = winder::runSettings();
+            Serial.println(winder::resumed() ? "resuming..." : "winding...");
             Serial.printf("step timer runs %lu rpm as %.2f rpm\n", s.rpm, winder::actualRpm(s.rpm));
             lastProgressMs = millis();
-            samples[0]     = {0, micros()};
-            sampleCount    = 1;
         }
-        wasRunning = running;
+        wasMoving = moving;
 
-        if (!running || millis() - lastProgressMs < PROGRESS_INTERVAL_MS) return;
+        if (!moving || millis() - lastProgressMs < PROGRESS_INTERVAL_MS) return;
         lastProgressMs = millis();
-
-        Sample now{winder::stepsDone(), micros()};
-        if (sampleCount == RPM_WINDOW + 1)
-        {
-            memmove(samples, samples + 1, RPM_WINDOW * sizeof(Sample));
-            sampleCount--;
-        }
-        samples[sampleCount++] = now;
-
-        const Sample& first = samples[0];
-        double rpm = (double)(now.steps - first.steps) / STEPS_PER_REV * 60e6 / (now.us - first.us);
-        Serial.printf("turns %9.2f / %lu   rpm %7.2f\n", (double)now.steps / STEPS_PER_REV,
-                      winder::targetSteps() / STEPS_PER_REV, rpm);
+        Serial.printf("turns %9.2f / %lu   rpm %7.2f\n", winder::turnsDone(), winder::targetSteps() / STEPS_PER_REV,
+                      winder::measuredRpm());
     }
 }
 
@@ -219,7 +196,13 @@ void loop()
     uint32_t t0 = micros();
 
     readSerial();
-    if (app::update())
+    winder::Event e = app::update();
+    if (e == winder::Event::Paused)
+    {
+        Serial.printf("PAUSED at %.2f / %lu turns — 'resume' or 'finish'\n", winder::turnsDone(),
+                      winder::targetSteps() / STEPS_PER_REV);
+    }
+    else if (e == winder::Event::Ended)
     {
         winder::printSummary();
         if (winder::lastOutcome() == winder::Outcome::Faulted)

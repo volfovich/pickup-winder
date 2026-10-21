@@ -32,7 +32,7 @@ namespace ui::screens
     void Setup::load()
     {
         shown       = app::settings();
-        shownLocked = winder::isRunning();
+        shownLocked = winder::inRun();
         snprintf(values[F_TURNS], sizeof(values[0]), "%lu", shown.turns);
         snprintf(values[F_RPM], sizeof(values[0]), "%lu", shown.rpm);
         snprintf(values[F_ACCEL], sizeof(values[0]), "%lu", shown.accelRpmPerS);
@@ -53,7 +53,7 @@ namespace ui::screens
         if (millis() - lastCheckMs < CHECK_MS || group.pressed() >= 0) return;
         lastCheckMs = millis();
         const winder::Settings& s = app::settings();
-        if (s != shown || winder::isRunning() != shownLocked)
+        if (s != shown || winder::inRun() != shownLocked)
         {
             load();
             for (uint8_t i = 0; i < 4; i++) buttons[i].draw();

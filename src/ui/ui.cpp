@@ -2,10 +2,15 @@
 #include "config.h"
 #include "ui/screen.h"
 #include "ui/screens/calibrate.h"
+#include "ui/screens/done.h"
+#include "ui/screens/fault.h"
 #include "ui/screens/idle.h"
+#include "ui/screens/paused.h"
+#include "ui/screens/running.h"
 #include "ui/theme.h"
 #include "ui/touch.h"
 #include "ui/widgets.h"
+#include "winder.h"
 
 namespace ui
 {
@@ -29,6 +34,28 @@ namespace ui
         uint32_t loopMax      = 0;
         uint32_t loopMaxShown = 0;
         uint32_t loopWindowMs = 0;
+
+        // The run state drives the screen: whatever started, paused or ended a
+        // run (this screen, the serial console, a fault), the matching screen
+        // comes up — so STOP is always on screen while the motor turns.
+        winder::State shownRunState = winder::State::Idle;
+
+        void followRunState()
+        {
+            winder::State s = winder::state();
+            if (s == shownRunState) return;
+            shownRunState = s;
+            switch (s)
+            {
+                case winder::State::Running: show(screens::running); break;
+                case winder::State::Paused: show(screens::paused); break;
+                case winder::State::Done:
+                    show(winder::lastOutcome() == winder::Outcome::Faulted ? (Screen&)screens::fault
+                                                                           : (Screen&)screens::done);
+                    break;
+                case winder::State::Idle: break;
+            }
+        }
 
         bool busBusy()
         {
@@ -82,6 +109,7 @@ namespace ui
 
         touch::Event e;
         while (current && touch::pollEvent(&e)) current->onTouch(e);
+        followRunState();
         if (current) current->update();
         refreshStatusBar();
         pushFrame();

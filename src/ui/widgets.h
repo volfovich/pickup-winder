@@ -53,4 +53,16 @@ namespace ui
     // Word-wraps text into a box of width w; returns the number of lines.
     uint8_t printWrapped(const char* text, int16_t x, int16_t y, int16_t w, int16_t lineH,
                          const ILI9341_t3_font_t& font, uint16_t color);
+
+    // "12,345"
+    const char* fmtThousands(uint32_t v, char* buf, size_t size);
+    // "4:07" or "1:02:03"
+    const char* fmtDuration(uint32_t ms, char* buf, size_t size);
+
+    // Run display shared by the Running / Paused screens: big turn counter
+    // with the target, and a progress bar under it.
+    constexpr int16_t COUNTER_Y  = 32;
+    constexpr int16_t PROGRESS_Y = 102;
+    void drawTurnCounter(uint32_t turns, uint32_t target, uint16_t color);
+    void drawProgressBar(uint32_t done, uint32_t total, uint16_t color);
 }

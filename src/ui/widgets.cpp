@@ -8,12 +8,13 @@ namespace ui
     {
         const char* statusTitle = "";
 
-        enum class MachineState : uint8_t { Unknown, NotReady, Ready, Winding };
+        enum class MachineState : uint8_t { Unknown, NotReady, Ready, Winding, Paused };
         MachineState shownState = MachineState::Unknown;
 
         MachineState machineState()
         {
-            if (winder::isRunning()) return MachineState::Winding;
+            if (winder::isMoving()) return MachineState::Winding;
+            if (winder::state() == winder::State::Paused) return MachineState::Paused;
             return tmc::ready() ? MachineState::Ready : MachineState::NotReady;
         }
     }
@@ -78,6 +79,11 @@ namespace ui
         if (shownState == MachineState::Winding)
         {
             text  = "winding";
+            color = theme::WARN;
+        }
+        else if (shownState == MachineState::Paused)
+        {
+            text  = "paused";
             color = theme::WARN;
         }
         else if (shownState == MachineState::Ready)
@@ -148,5 +154,49 @@ namespace ui
             p += len;
         }
         return lines;
+    }
+
+    const char* fmtThousands(uint32_t v, char* buf, size_t size)
+    {
+        char digits[12];
+        int n = snprintf(digits, sizeof(digits), "%lu", v);
+        size_t o = 0;
+        for (int i = 0; i < n && o + 1 < size; i++)
+        {
+            if (i && (n - i) % 3 == 0 && o + 2 < size) buf[o++] = ',';
+            buf[o++] = digits[i];
+        }
+        buf[o] = '\0';
+        return buf;
+    }
+
+    const char* fmtDuration(uint32_t ms, char* buf, size_t size)
+    {
+        uint32_t s = ms / 1000;
+        if (s >= 3600) snprintf(buf, size, "%lu:%02lu:%02lu", s / 3600, (s / 60) % 60, s % 60);
+        else snprintf(buf, size, "%lu:%02lu", s / 60, s % 60);
+        return buf;
+    }
+
+    void drawTurnCounter(uint32_t turns, uint32_t target, uint16_t color)
+    {
+        // Number right-aligned so the layout never shifts; target beside it
+        constexpr int16_t NUMBER_RIGHT = 206;
+        char a[16], b[20], t[16];
+        tft().fillRect(0, COUNTER_Y, theme::W, PROGRESS_Y - COUNTER_Y - 4, theme::BG);
+        printRight(fmtThousands(turns, a, sizeof(a)), NUMBER_RIGHT, COUNTER_Y, theme::FONT_BIG, color);
+        snprintf(b, sizeof(b), "/ %s", fmtThousands(target, t, sizeof(t)));
+        int16_t y = COUNTER_Y + theme::FONT_BIG.cap_height - theme::FONT_VALUE.cap_height;
+        printAt(b, NUMBER_RIGHT + 8, y, theme::FONT_VALUE, theme::MUTED);
+    }
+
+    void drawProgressBar(uint32_t done, uint32_t total, uint16_t color)
+    {
+        constexpr int16_t X = 8, W = 304, H = 14;
+        auto& d = tft();
+        int16_t fill = total ? (int16_t)((uint64_t)(W - 4) * min(done, total) / total) : 0;
+        d.drawRect(X, PROGRESS_Y, W, H, theme::MUTED);
+        d.fillRect(X + 2, PROGRESS_Y + 2, fill, H - 4, color);
+        d.fillRect(X + 2 + fill, PROGRESS_Y + 2, W - 4 - fill, H - 4, theme::BG);
     }
 }

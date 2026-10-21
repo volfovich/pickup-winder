@@ -52,7 +52,7 @@ namespace app
 
         void watchDriver()
         {
-            if (!winder::isRunning() || millis() - lastPollMs < FAULT_POLL_MS) return;
+            if (!winder::isMoving() || millis() - lastPollMs < FAULT_POLL_MS) return;
             lastPollMs = millis();
 
             bool otpw        = false;
@@ -90,13 +90,12 @@ namespace app
             Serial.println("settings: none saved yet (or invalid) — using defaults");
     }
 
-    bool update()
+    winder::Event update()
     {
         watchDriver();
-        if (!winder::update()) return false;
-
-        if (winder::lastOutcome() == winder::Outcome::Faulted) winder::enableDriver(false);
-        return true;
+        winder::Event e = winder::update();
+        if (e == winder::Event::Ended && winder::lastOutcome() == winder::Outcome::Faulted) winder::enableDriver(false);
+        return e;
     }
 
     const winder::Settings& settings()
@@ -106,7 +105,7 @@ namespace app
 
     const char* setTurns(uint32_t turns)
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         if (const char* err = winder::checkTurns(turns)) return err;
         current.turns = turns;
         save();
@@ -115,7 +114,7 @@ namespace app
 
     const char* setRpm(uint32_t rpm)
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         if (const char* err = winder::checkRpm(rpm)) return err;
         current.rpm = rpm;
         save();
@@ -124,7 +123,7 @@ namespace app
 
     const char* setAccel(uint32_t accelRpmPerS)
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         if (const char* err = winder::checkAccel(accelRpmPerS)) return err;
         current.accelRpmPerS = accelRpmPerS;
         save();
@@ -133,7 +132,7 @@ namespace app
 
     const char* setDir(winder::Dir dir)
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         current.dir = dir;
         save();
         return nullptr;
@@ -148,6 +147,19 @@ namespace app
         return nullptr;
     }
 
+    const char* resume()
+    {
+        if (const char* err = winder::resume()) return err;
+        lastPollMs   = millis();
+        commFailures = 0;
+        return nullptr;
+    }
+
+    const char* finish()
+    {
+        return winder::finish();
+    }
+
     void stop()
     {
         winder::stop();
@@ -160,14 +172,14 @@ namespace app
 
     const char* release()
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         winder::enableDriver(false);
         return nullptr;
     }
 
     const char* reinitDriver()
     {
-        if (winder::isRunning()) return BUSY;
+        if (winder::inRun()) return BUSY;
         return tmc::begin() ? nullptr : "driver configuration failed — check the 24 V and UART wiring";
     }
 }

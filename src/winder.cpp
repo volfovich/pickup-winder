@@ -45,15 +45,29 @@ namespace winder
 
         WinderStepper motor(PIN_STEP, PIN_DIR);
 
-        uint32_t target        = 0;
-        bool running           = false;
-        bool stopRequested     = false;
-        bool estopRequested    = false;
-        const char* faultMsg   = nullptr;
-        Outcome outcome        = Outcome::None;
-        bool enabled           = false;
-        uint32_t runStartMs    = 0;
-        uint32_t runEndMs      = 0;
+        State st             = State::Idle;
+        Settings run{};
+        uint32_t target      = 0;
+        bool stopRequested   = false;
+        const char* faultMsg = nullptr;
+        Outcome outcome      = Outcome::None;
+        Event pending        = Event::None;
+        bool enabled         = false;
+        uint32_t segStartMs  = 0; // current Running segment
+        uint32_t segStartSteps = 0;
+        uint32_t windingDone = 0; // ms spent moving in earlier segments
+
+        // Speed over the last second: samples every 250 ms while moving
+        constexpr uint8_t SPEED_SAMPLES   = 5;
+        constexpr uint32_t SPEED_PERIOD_MS = 250;
+        struct Sample
+        {
+            uint32_t steps;
+            uint32_t us;
+        };
+        Sample speed[SPEED_SAMPLES];
+        uint8_t speedCount     = 0;
+        uint32_t lastSpeedMs   = 0;
 
         // Driver-side pulse check: MSCNT before and after the run
         constexpr uint16_t MSCNT_PER_STEP = 256 / MICROSTEPS;
@@ -70,6 +84,50 @@ namespace winder
         uint32_t rpmToStepsPerS(uint32_t rpm)
         {
             return (rpm * STEPS_PER_REV + 30) / 60;
+        }
+
+        uint32_t steps()
+        {
+            int32_t p = motor.getPosition();
+            return (uint32_t)(p < 0 ? -p : p);
+        }
+
+        void sampleSpeed(bool restart)
+        {
+            Sample now{steps(), micros()};
+            if (restart) speedCount = 0;
+            else if (millis() - lastSpeedMs < SPEED_PERIOD_MS) return;
+            lastSpeedMs = millis();
+            if (speedCount == SPEED_SAMPLES)
+            {
+                memmove(speed, speed + 1, (SPEED_SAMPLES - 1) * sizeof(Sample));
+                speedCount--;
+            }
+            speed[speedCount++] = now;
+        }
+
+        // One Running segment: the whole run, or what's left after a pause.
+        // The position counter carries on, so the total stays exact.
+        void beginSegment()
+        {
+            stopRequested = false;
+            enableDriver(true);
+            delay(5); // let the coil current settle before the first step
+
+            motor.setProfile(rpmToStepsPerS(run.rpm), rpmToStepsPerS(run.accelRpmPerS));
+            st            = State::Running;
+            segStartMs    = millis();
+            segStartSteps = steps();
+            sampleSpeed(true);
+            motor.moveRelAsync((int32_t)run.dir * (int32_t)(target - steps()));
+        }
+
+        void endRun(Outcome o)
+        {
+            st      = State::Done;
+            outcome = o;
+            pending = Event::Ended;
+            if (o != Outcome::Faulted && mscntValid) mscntValid = tmc::readMscnt(&mscntEnd);
         }
 
         // TeensyStep4 starts and ends a move at v^2 = 200^2 steps^2/s^2 and
@@ -139,91 +197,110 @@ namespace winder
 #endif
     }
 
-    const char* start(const Settings& st)
+    const char* start(const Settings& s)
     {
-        if (running || motor.moving()) return "already running";
+        if (inRun() || motor.moving()) return "a run is in progress — resume or finish it first";
         if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
-        if (const char* err = checkTurns(st.turns)) return err;
-        if (const char* err = checkRpm(st.rpm)) return err;
-        if (const char* err = checkAccel(st.accelRpmPerS)) return err;
+        if (const char* err = checkTurns(s.turns)) return err;
+        if (const char* err = checkRpm(s.rpm)) return err;
+        if (const char* err = checkAccel(s.accelRpmPerS)) return err;
 
-        target         = st.turns * STEPS_PER_REV;
-        stopRequested  = false;
-        estopRequested = false;
-        faultMsg       = nullptr;
-        outcome        = Outcome::None;
+        run         = s;
+        target      = s.turns * STEPS_PER_REV;
+        faultMsg    = nullptr;
+        outcome     = Outcome::None;
+        windingDone = 0;
 
         mscntValid = tmc::readMscnt(&mscntStart);
         motor.setPosition(0); // count each run from zero (also keeps int32 far from overflow)
 #ifdef STEP_LOOPBACK_PIN
         loopbackCount = 0;
 #endif
+        beginSegment();
+        return nullptr;
+    }
 
-        enableDriver(true);
-        delay(5); // let the coil current settle before the first step
+    const char* resume()
+    {
+        if (st != State::Paused) return "nothing to resume";
+        if (!tmc::ready()) return "driver not configured — check the TMC2209 and 24 V, then re-init";
+        tmc::Fault f = tmc::poll(nullptr);
+        if (f != tmc::Fault::None) return tmc::faultName(f);
+        beginSegment();
+        return nullptr;
+    }
 
-        motor.setProfile(rpmToStepsPerS(st.rpm), rpmToStepsPerS(st.accelRpmPerS));
-        running    = true;
-        runStartMs = millis();
-        motor.moveRelAsync((int32_t)st.dir * (int32_t)target);
+    const char* finish()
+    {
+        if (st != State::Paused) return "no paused run to finish";
+        endRun(Outcome::EndedEarly);
         return nullptr;
     }
 
     void stop()
     {
-        if (!running) return;
+        if (st != State::Running || stopRequested) return;
         stopRequested = true;
         motor.stopAsync();
     }
 
     void estop()
     {
-        if (!running) return;
-        estopRequested = true;
-        motor.hardStop();
+        if (st == State::Running) motor.hardStop();
     }
 
     void abortOnFault(const char* reason)
     {
-        if (!running) return;
+        if (st != State::Running) return;
         faultMsg = reason;
         motor.hardStop();
     }
 
-    bool isRunning()
+    State state() { return st; }
+    bool isMoving() { return st == State::Running; }
+    bool inRun() { return st == State::Running || st == State::Paused; }
+    bool stopping() { return st == State::Running && stopRequested; }
+    bool resumed() { return inRun() && segStartSteps > 0; }
+
+    uint32_t stepsDone() { return steps(); }
+    uint32_t targetSteps() { return target; }
+    float turnsDone() { return (float)steps() / STEPS_PER_REV; }
+    const Settings& runSettings() { return run; }
+    const char* faultReason() { return faultMsg; }
+
+    float measuredRpm()
     {
-        return running;
+        if (st != State::Running || speedCount < 2) return 0;
+        const Sample& a = speed[0];
+        const Sample& b = speed[speedCount - 1];
+        return (double)(b.steps - a.steps) / STEPS_PER_REV * 60e6 / (b.us - a.us);
     }
 
-    uint32_t stepsDone()
+    uint32_t windingMs()
     {
-        int32_t p = motor.getPosition();
-        return (uint32_t)(p < 0 ? -p : p);
+        return windingDone + (st == State::Running ? millis() - segStartMs : 0);
     }
 
-    uint32_t targetSteps()
+    Event update()
     {
-        return target;
-    }
-
-    float turnsDone()
-    {
-        return (float)stepsDone() / STEPS_PER_REV;
-    }
-
-    bool update()
-    {
-        if (!running || motor.moving()) return false;
-
-        running  = false;
-        runEndMs = millis();
-        if (faultMsg) outcome = Outcome::Faulted;
-        else if (estopRequested) outcome = Outcome::EStopped;
-        else if (stopRequested && stepsDone() != target) outcome = Outcome::Stopped;
-        else outcome = Outcome::Completed;
-
-        if (mscntValid) mscntValid = tmc::readMscnt(&mscntEnd);
-        return true;
+        if (st == State::Running)
+        {
+            sampleSpeed(false);
+            if (!motor.moving())
+            {
+                windingDone += millis() - segStartMs;
+                if (faultMsg) endRun(Outcome::Faulted);
+                else if (steps() >= target) endRun(Outcome::Completed);
+                else
+                {
+                    st      = State::Paused;
+                    pending = Event::Paused;
+                }
+            }
+        }
+        Event e = pending;
+        pending = Event::None;
+        return e;
     }
 
     Outcome lastOutcome()
@@ -231,57 +308,61 @@ namespace winder
         return outcome;
     }
 
+    PulseCheck pulseCheck(int16_t* offsetSteps)
+    {
+        // The driver's MSCNT must have moved by exactly the pulses we sent
+        // (mod 1024). DIR polarity vs. MSCNT direction is not known, so both
+        // signs are accepted; for whole turns the expected value is 0 anyway.
+        if (offsetSteps) *offsetSteps = 0;
+        if (outcome == Outcome::Faulted) return PulseCheck::Skipped;
+        if (!mscntValid) return PulseCheck::Unavailable;
+
+        uint16_t moved = (mscntEnd - mscntStart) & 0x3FF;
+        uint16_t fwd   = (steps() * MSCNT_PER_STEP) & 0x3FF;
+        uint16_t rev   = (0x400 - fwd) & 0x3FF;
+        if (moved == fwd || moved == rev) return PulseCheck::Ok;
+
+        int16_t offF = (int16_t)(((moved - fwd + 512) & 0x3FF) - 512);
+        int16_t offR = (int16_t)(((moved - rev + 512) & 0x3FF) - 512);
+        if (offsetSteps) *offsetSteps = (abs(offF) < abs(offR) ? offF : offR) / (int16_t)MSCNT_PER_STEP;
+        return PulseCheck::Mismatch;
+    }
+
     void printSummary()
     {
-        uint32_t steps = stepsDone();
-        uint32_t full  = steps / STEPS_PER_REV;
-        uint32_t rem   = steps % STEPS_PER_REV;
+        uint32_t n    = steps();
+        uint32_t full = n / STEPS_PER_REV;
+        uint32_t rem  = n % STEPS_PER_REV;
 
         Serial.println("----------------------------------------");
         switch (outcome)
         {
-            case Outcome::Completed:
-                Serial.printf("RUN COMPLETE: %s\n", steps == target ? "OK" : "MISMATCH");
-                break;
-            case Outcome::Stopped: Serial.println("RUN STOPPED by user (ramped)"); break;
-            case Outcome::EStopped: Serial.println("RUN E-STOPPED by user"); break;
+            case Outcome::Completed: Serial.printf("RUN COMPLETE: %s\n", n == target ? "OK" : "MISMATCH"); break;
+            case Outcome::EndedEarly: Serial.println("RUN ENDED EARLY by user"); break;
             case Outcome::Faulted:
                 Serial.printf("RUN ABORTED: %s — count unreliable\n", faultMsg ? faultMsg : "fault");
                 break;
             case Outcome::None: Serial.println("no run yet"); return;
         }
-        Serial.printf("  turns  %lu + %lu/%lu  (%.3f)  target %lu\n",
-                      full, rem, STEPS_PER_REV, (double)steps / STEPS_PER_REV, target / STEPS_PER_REV);
-        Serial.printf("  steps  %lu  target %lu\n", steps, target);
+        Serial.printf("  turns  %lu + %lu/%lu  (%.3f)  target %lu\n", full, rem, STEPS_PER_REV,
+                      (double)n / STEPS_PER_REV, target / STEPS_PER_REV);
+        Serial.printf("  steps  %lu  target %lu\n", n, target);
 
-        // The driver's MSCNT must have moved by exactly the pulses we sent
-        // (mod 1024). DIR polarity vs. MSCNT direction is not known, so both
-        // signs are accepted; for whole turns the expected value is 0 anyway.
-        if (outcome == Outcome::Faulted)
-            Serial.println("  driver pulse check: skipped (fault)");
-        else if (!mscntValid)
-            Serial.println("  driver pulse check: unavailable (UART read failed)");
-        else
+        int16_t off;
+        switch (pulseCheck(&off))
         {
-            uint16_t moved = (mscntEnd - mscntStart) & 0x3FF;
-            uint16_t fwd   = (steps * MSCNT_PER_STEP) & 0x3FF;
-            uint16_t rev   = (0x400 - fwd) & 0x3FF;
-            if (moved == fwd || moved == rev)
-                Serial.println("  driver pulse check: OK (driver received every step)");
-            else
-            {
-                int16_t offF = (int16_t)(((moved - fwd + 512) & 0x3FF) - 512);
-                int16_t offR = (int16_t)(((moved - rev + 512) & 0x3FF) - 512);
-                int16_t off  = abs(offF) < abs(offR) ? offF : offR;
-                Serial.printf("  driver pulse check: MISMATCH — driver saw %+d step(s) vs. sent (mod 64)\n",
-                              off / (int16_t)MSCNT_PER_STEP);
-            }
+            case PulseCheck::Ok: Serial.println("  driver pulse check: OK (driver received every step)"); break;
+            case PulseCheck::Mismatch:
+                Serial.printf("  driver pulse check: MISMATCH — driver saw %+d step(s) vs. sent (mod 64)\n", off);
+                break;
+            case PulseCheck::Unavailable: Serial.println("  driver pulse check: unavailable (UART read failed)"); break;
+            case PulseCheck::Skipped: Serial.println("  driver pulse check: skipped (fault)"); break;
         }
 #ifdef STEP_LOOPBACK_PIN
         uint32_t lb = loopbackCount;
-        Serial.printf("  loopback pulses %lu  %s\n", lb, lb == steps ? "(match)" : "(MISMATCH)");
+        Serial.printf("  loopback pulses %lu  %s\n", lb, lb == n ? "(match)" : "(MISMATCH)");
 #endif
-        Serial.printf("  time   %.1f s\n", (runEndMs - runStartMs) / 1000.0);
+        Serial.printf("  winding time  %.1f s\n", windingDone / 1000.0);
         Serial.println("----------------------------------------");
     }
 

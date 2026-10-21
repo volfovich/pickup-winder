@@ -23,6 +23,7 @@ namespace ui::screens
         ButtonGroup group;
         winder::Settings shown{};
         uint32_t lastCheckMs = 0;
+        uint32_t msgUntilMs  = 0;
     };
 
     extern Idle idle;
