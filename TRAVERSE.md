@@ -59,7 +59,7 @@ The display's full wiring, in the module's pin order, is in [UI.md](UI.md#2-hard
 5. Keep a hand near the 24 V switch: `home` (or HOME on the Guide screen). It approaches the switch, backs off, re-approaches slowly and parks at 1.0 mm. Repeat 10×: the position repeats.
 6. `goto 25`, `goto 0.5`: smooth moves, no noise from the lead screw end. Try the jog buttons on the Guide screen.
 7. **Teach the bobbin** (see below): mount a bobbin; on the Guide screen jog until the wire meets the inside of flange 1, tap **SET FLANGE 1**; jog to flange 2, tap **SET FLANGE 2**. Check with **GO TO FLANGE** (tap twice: flange 1, then flange 2) that the wire lines up with both. Set `awg`, `insulation`, `margin` on the Bobbin screen.
-8. `traverse on`, then a dry wind (no wire) at 300 RPM, then at 1500 RPM. Watch the reversals: they should stay one margin inside each flange. Both pulse checks `OK`.
+8. `traverse on`, then a dry wind (no wire) at 500 RPM, then at the top speed, 1200 RPM (the bring-up ran 300 and 1500, before the range was narrowed). Watch the reversals: they should stay one margin inside each flange. Both pulse checks `OK`.
 9. `stop` mid-layer, then `resume`: the guide continues exactly where it was.
 
 ## How the bobbin is located

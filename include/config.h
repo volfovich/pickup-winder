@@ -58,7 +58,7 @@ constexpr float    R_SENSE        = 0.11f; // ohms — check your module (BTT/FY
 // 0.11 ohm sense resistors). 1500 mA needs a heatsink and airflow on the driver.
 // This is the default; the `current` command changes it (saved in EEPROM).
 // Heat in driver and motor grows with the square of the current.
-constexpr uint16_t RMS_CURRENT_MA = 1500;  // motor run current (RMS)
+constexpr uint16_t RMS_CURRENT_MA = 1200;  // motor run current (RMS); less heat than 1500
 constexpr uint16_t MIN_CURRENT_MA = 400;
 constexpr uint16_t MAX_CURRENT_MA = 1700;
 // Standstill current, % of the run current: the spindle needs little
@@ -95,15 +95,15 @@ constexpr bool     TRAVERSE_DIR_INVERT   = true;  // +jog moved toward the switc
 // ---------------------------------------------------------------------------
 // Limits and defaults
 // ---------------------------------------------------------------------------
-constexpr uint32_t MIN_RPM   = 10; // TeensyStep4's 16-bit timer can't go below ~72 steps/s
-constexpr uint32_t MAX_RPM   = 1500;
+constexpr uint32_t MIN_RPM   = 500;  // winding range for this machine (TeensyStep4 itself
+constexpr uint32_t MAX_RPM   = 1200; // covers ~1.4 to 1875 RPM)
 constexpr uint32_t MAX_TURNS = 11000;
 
 constexpr uint32_t MIN_ACCEL_RPM_PER_S = 10;
 constexpr uint32_t MAX_ACCEL_RPM_PER_S = 2000;
 
 constexpr uint32_t DEFAULT_TURNS           = 10;
-constexpr uint32_t DEFAULT_RPM             = 300;
+constexpr uint32_t DEFAULT_RPM             = 1000;
 constexpr uint32_t DEFAULT_ACCEL_RPM_PER_S = 300; // conservative to avoid stalls
 
 // Traverse step generator: a 40 kHz timer interrupt, at most one step per
@@ -142,6 +142,7 @@ constexpr uint32_t DEFAULT_FLANGE_UM  = 5000; // inner face of the near flange, 
 static_assert((uint64_t)MAX_TURNS * STEPS_PER_REV <= INT32_MAX, "MAX_TURNS * STEPS_PER_REV must fit in int32");
 // TeensyStep4's TMR timer with 8 us pulses tops out around 118 kHz; keep well below
 static_assert((uint64_t)MAX_RPM * STEPS_PER_REV / 60 <= 100000, "step rate too high for TeensyStep4");
+static_assert(DEFAULT_RPM >= MIN_RPM && DEFAULT_RPM <= MAX_RPM, "DEFAULT_RPM outside MIN_RPM..MAX_RPM");
 // The traverse may move at most one step per spindle step (it does far less:
 // 0.07 for 42 AWG), and its fastest move must fit one step per tick
 static_assert(MAX_WIRE_UM * TRAVERSE_STEPS_PER_MM / 1000 < STEPS_PER_REV, "wire pitch too coarse");

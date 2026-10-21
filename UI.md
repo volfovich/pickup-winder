@@ -70,7 +70,7 @@ src/
 ### `app`: the shared layer
 - **Settings:** turns, RPM, accel, direction, spindle current, and the guide settings (on/off, AWG, insulation, inner width, margin, flanges, first layer). **Saved in EEPROM** with a version number and checksum (version 3; older versions migrate). Invalid data falls back to the defaults in `config.h`.
 - **Actions:** setters, `start` / `stop` / `estop` / `resume` / `finish`, `home` / `jog` / `moveTo`, `setFlange1Here` / `setFlange2Here`, `release`, `reinitDriver`.
-- Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 10..1500"`. Serial prints it, the UI shows it.
+- Each action returns **`nullptr` on success or a short error text**, e.g. `"rpm must be 500..1200"`. Serial prints it, the UI shows it.
 
 ### Screen manager
 - **The run state drives the screen:** whatever starts, pauses or ends a run (a tap, serial, a fault), the matching screen comes up: Running, Paused, Done or Fault.
@@ -123,7 +123,7 @@ Mockups are 320 × 240 landscape; `[ ... ]` is a button. Every screen has a **st
 | IDLE                         ready - motor free  |
 +--------------------------------------------------+
 |  Turns      8,000               Dir  CW          |
-|  RPM        1500   (actual 1489.7)               |
+|  RPM        1200   (actual 1204.0)               |
 |  Bobbin     42 AWG, 12.0 mm, 22 layers           |
 |  +--------------------------------------------+  |
 |  |                  START                     |  |
@@ -143,7 +143,7 @@ Tap a value to edit it with the keypad; Direction toggles on tap. Locked (grey) 
 | SETUP                        ready - motor free  |
 +--------------------------------------------------+
 |  [ Turns                               8000 ]    |
-|  [ RPM                                 1500 ]    |
+|  [ RPM                                 1200 ]    |
 |  [ Accel (RPM/s)                        600 ]    |
 |  [ Direction                             CW ]    |
 |                                                  |
@@ -155,9 +155,9 @@ Tap a value to edit it with the keypad; Direction toggles on tap. Locked (grey) 
 The title and allowed range are in the status bar. On OK, the value goes through `app` validation; an error shows in red and the keypad stays open. The first digit replaces the shown value; no leading zeros.
 ```
 +--------------------------------------------------+
-| RPM                                  10 .. 1500  |
+| RPM                                 500 .. 1200  |
 +--------------------------------------------------+
-| [         1500 ]   [ 7 ] [ 8 ] [ 9 ]             |
+| [         1200 ]   [ 7 ] [ 8 ] [ 9 ]             |
 |  (error text)      [ 4 ] [ 5 ] [ 6 ]             |
 | [    CANCEL    ]   [ 1 ] [ 2 ] [ 3 ]             |
 | [      OK      ]   [ . ] [ 0 ] [DEL]             |

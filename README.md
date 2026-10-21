@@ -1,6 +1,6 @@
 # Pickup Winder NG
 
-Guitar pickup coil winder firmware for a Teensy 4.0. A NEMA 17 spindle, driven by a TMC2209, stops on the **exact** preset turn count: up to 11,000 turns at up to 1500 RPM. It is run from a **2.8" touch screen** (no hardware buttons) or the USB serial console. A **wire guide** on a small linear slide lays the wire in even layers.
+Guitar pickup coil winder firmware for a Teensy 4.0. A NEMA 17 spindle, driven by a TMC2209, stops on the **exact** preset turn count: up to 11,000 turns at 500 – 1200 RPM. It is run from a **2.8" touch screen** (no hardware buttons) or the USB serial console. A **wire guide** on a small linear slide lays the wire in even layers.
 
 Firmware **v1.0** (`FIRMWARE_NAME` / `FIRMWARE_VERSION` in `include/config.h`).
 
@@ -69,7 +69,7 @@ Set over UART at boot and **verified by reading every value back**: the motor wi
 | UART address | 0 | 1 |
 | Mode | **spreadCycle** | spreadCycle (`TRAVERSE_STEALTHCHOP` to change) |
 | Microsteps | 16, with 256× interpolation | 16 (3200 steps/mm) |
-| Run current | 1500 mA RMS default; `current N` changes it (saved) | 400 mA RMS |
+| Run current | 1200 mA RMS default; `current N` changes it (saved) | 400 mA RMS |
 | Hold current | 25 %; switched off 2 min after a run ends (paused runs keep holding) | 50 % |
 | Chopper | toff 4, blank time 24, hstrt 5, hend 0 | same |
 | Step input | rising edge only (`dedge = 0`) | same |
@@ -99,9 +99,9 @@ The status bar shows whether the spindle is **"ready - motor free"** or **"ready
 | Setting | Range | Default |
 |---|---|---|
 | Turns | 1 – 11000 | 10 |
-| RPM | 10 – 1500 | 300 |
+| RPM | 500 – 1200 (`MIN_RPM` / `MAX_RPM` in `config.h`) | 1000 |
 | Accel (RPM/s) | 10 – 2000, **except 327 – 423** ¹ | 300 |
-| Spindle current (mA RMS) | 400 – 1700 | 1500 |
+| Spindle current (mA RMS) | 400 – 1700 | 1200 |
 | Wire | AWG 42 / 43 / 44, single or heavy insulation | 42 single (0.071 mm) |
 | Bobbin inner width (mm) | 2.0 – 48.0 | 12.0 |
 | Margin inside each flange (mm) | 0.0 – 5.0 | 1.0 |

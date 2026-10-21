@@ -91,6 +91,14 @@ namespace app
             return h;
         }
 
+        // Saved before the RPM range was narrowed: bring it into range rather
+        // than discard every setting
+        const winder::Settings& clampRpm(winder::Settings& s)
+        {
+            s.rpm = constrain(s.rpm, MIN_RPM, MAX_RPM);
+            return s;
+        }
+
         bool valid(const winder::Settings& s)
         {
             return !winder::checkTurns(s.turns) && !winder::checkRpm(s.rpm) && !winder::checkAccel(s.accelRpmPerS) &&
@@ -238,7 +246,7 @@ namespace app
     {
         Stored d;
         EEPROM.get(EEPROM_ADDR_SETTINGS, d);
-        if (d.magic == SETTINGS_MAGIC && d.version == SETTINGS_VERSION && d.check == checksum(d) && valid(d.s) &&
+        if (d.magic == SETTINGS_MAGIC && d.version == SETTINGS_VERSION && d.check == checksum(d) && valid(clampRpm(d.s)) &&
             valid(d.t) && validCurrent(d.currentMa))
         {
             current = d.s;
@@ -249,7 +257,7 @@ namespace app
 
         StoredV2 v2;
         EEPROM.get(EEPROM_ADDR_SETTINGS, v2);
-        if (v2.magic == SETTINGS_MAGIC && v2.version == 2 && v2.check == checksum(v2) && valid(v2.s) &&
+        if (v2.magic == SETTINGS_MAGIC && v2.version == 2 && v2.check == checksum(v2) && valid(clampRpm(v2.s)) &&
             validCurrent(v2.currentMa))
         {
             current = v2.s;
@@ -261,7 +269,7 @@ namespace app
 
         StoredV1 v1;
         EEPROM.get(EEPROM_ADDR_SETTINGS, v1);
-        if (v1.magic == SETTINGS_MAGIC && v1.version == 1 && v1.check == checksum(v1) && valid(v1.s))
+        if (v1.magic == SETTINGS_MAGIC && v1.version == 1 && v1.check == checksum(v1) && valid(clampRpm(v1.s)))
         {
             current = v1.s;
             save(); // as version 2, traverse settings at their defaults
