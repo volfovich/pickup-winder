@@ -9,7 +9,8 @@ namespace app
     {
         winder::Settings current{DEFAULT_TURNS, DEFAULT_RPM, DEFAULT_ACCEL_RPM_PER_S, winder::Dir::CW};
         constexpr TraverseSettings TRAV_DEFAULTS{false,         DEFAULT_AWG,       false, DEFAULT_WIDTH_UM,
-                                                 DEFAULT_MARGIN_UM, DEFAULT_FLANGE_UM, true};
+                                                 DEFAULT_MARGIN_UM, DEFAULT_FLANGE_UM, true,
+                                                 false,         DEFAULT_PITCH_SCATTER_PCT, DEFAULT_END_SCATTER_UM, 1};
         TraverseSettings trav = TRAV_DEFAULTS;
 
         // Settings in EEPROM, versioned and checksummed
@@ -20,6 +21,22 @@ namespace app
             winder::Settings s;
             TraverseSettings t;
             uint16_t currentMa; // spindle run current
+            uint32_t check;
+        };
+        struct StoredV3 // before scatter winding
+        {
+            uint32_t magic;
+            uint16_t version;
+            winder::Settings s;
+            struct
+            {
+                bool on;
+                uint8_t awg;
+                bool heavy;
+                uint32_t widthUm, marginUm, flangeUm;
+                bool firstAway;
+            } t;
+            uint16_t currentMa;
             uint32_t check;
         };
         struct StoredV2 // guide set by wire / width / offset in um
@@ -44,7 +61,7 @@ namespace app
             uint32_t check;
         };
         constexpr uint32_t SETTINGS_MAGIC   = 0x57494E44; // "WIND"
-        constexpr uint16_t SETTINGS_VERSION = 3;
+        constexpr uint16_t SETTINGS_VERSION = 4;
 
         // Driver fault watch while winding: spindle and traverse take turns
         uint32_t lastPollMs  = 0;
@@ -57,8 +74,10 @@ namespace app
         uint32_t idleSinceMs  = 0;
         constexpr uint8_t COMM_FAILURES_TO_ABORT = 3;
 
-        // The run with the traverse
+        // The run with the traverse; with scatter, the pattern points at
+        // the layer table (written only at START, read by the step ISR)
         traverse_math::Pattern pattern{};
+        traverse_math::Layer scatterTable[MAX_SCATTER_LAYERS + 1];
         bool positioningNow     = false;
         const char* startErr    = nullptr;
         bool travRun            = false;
@@ -115,7 +134,9 @@ namespace app
         bool valid(const TraverseSettings& t)
         {
             return wireSize(t.awg) && t.widthUm >= MIN_WIDTH_UM && t.widthUm <= MAX_WIDTH_UM &&
-                   t.marginUm <= MAX_MARGIN_UM && t.flangeUm <= TRAVERSE_TRAVEL_UM;
+                   t.marginUm <= MAX_MARGIN_UM && t.flangeUm <= TRAVERSE_TRAVEL_UM &&
+                   t.pitchScatterPct <= MAX_PITCH_SCATTER_PCT && t.endScatterUm <= MAX_END_SCATTER_UM &&
+                   t.seed <= MAX_SCATTER_SEED;
         }
 
         bool validCurrent(uint16_t mA)
@@ -141,8 +162,32 @@ namespace app
             EEPROM.put(EEPROM_ADDR_SETTINGS, d);
         }
 
+        uint32_t pitchUm()
+        {
+            const WireSize* size = wireSize(trav.awg);
+            return size ? (trav.heavy ? size->heavyUm : size->singleUm) : MAX_WIRE_UM;
+        }
+
+        // The margins leave no room for the end scatter
+        bool endScatterTooLarge()
+        {
+            return trav.widthUm <= 2 * trav.marginUm + 2 * trav.endScatterUm + 2 * pitchUm();
+        }
+
+        traverse_math::Scatter scatterParams()
+        {
+            return traverse_math::Scatter{pitchUm(),         trav.flangeUm + trav.marginUm,
+                                          trav.flangeUm + trav.widthUm - trav.marginUm,
+                                          trav.endScatterUm, trav.pitchScatterPct, trav.seed, trav.firstAway,
+                                          current.turns};
+        }
+
         bool makeRunPattern()
         {
+            if (trav.scatter)
+                return !endScatterTooLarge() &&
+                       traverse_math::makeScatter(&pattern, scatterTable, MAX_SCATTER_LAYERS, nullptr, scatterParams(),
+                                                  TRAVERSE_STEPS_PER_MM, STEPS_PER_REV);
             Winding w = winding();
             return w.turnsPerLayer && traverse_math::makePattern(&pattern, w.pitchUm, w.spanUm, w.startUm,
                                                                  trav.firstAway, TRAVERSE_STEPS_PER_MM, STEPS_PER_REV);
@@ -255,6 +300,30 @@ namespace app
             return;
         }
 
+        StoredV3 v3;
+        EEPROM.get(EEPROM_ADDR_SETTINGS, v3);
+        if (v3.magic == SETTINGS_MAGIC && v3.version == 3 && v3.check == checksum(v3) && valid(clampRpm(v3.s)) &&
+            validCurrent(v3.currentMa))
+        {
+            TraverseSettings t = TRAV_DEFAULTS; // scatter off, at its defaults
+            t.on               = v3.t.on;
+            t.awg              = v3.t.awg;
+            t.heavy            = v3.t.heavy;
+            t.widthUm          = v3.t.widthUm;
+            t.marginUm         = v3.t.marginUm;
+            t.flangeUm         = v3.t.flangeUm;
+            t.firstAway        = v3.t.firstAway;
+            if (valid(t))
+            {
+                current = v3.s;
+                trav    = t;
+                tmc::spindle.setCurrent(v3.currentMa);
+                save(); // as version 4
+                Serial.println("settings: upgraded (scatter winding added, off)");
+                return;
+            }
+        }
+
         StoredV2 v2;
         EEPROM.get(EEPROM_ADDR_SETTINGS, v2);
         if (v2.magic == SETTINGS_MAGIC && v2.version == 2 && v2.check == checksum(v2) && valid(clampRpm(v2.s)) &&
@@ -262,7 +331,7 @@ namespace app
         {
             current = v2.s;
             tmc::spindle.setCurrent(v2.currentMa);
-            save(); // as version 3: the guide is now set by AWG / margin / flange, back to defaults
+            save(); // the guide is now set by AWG / margin / flange, back to defaults
             Serial.println("settings: upgraded (guide settings reset: AWG, margin, flange)");
             return;
         }
@@ -272,7 +341,7 @@ namespace app
         if (v1.magic == SETTINGS_MAGIC && v1.version == 1 && v1.check == checksum(v1) && valid(clampRpm(v1.s)))
         {
             current = v1.s;
-            save(); // as version 2, traverse settings at their defaults
+            save(); // traverse settings at their defaults
             Serial.println("settings: upgraded (traverse settings added, traverse off)");
             return;
         }
@@ -514,26 +583,108 @@ namespace app
         return nullptr;
     }
 
+    const char* setScatter(bool on)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        trav.scatter = on;
+        save();
+        return nullptr;
+    }
+
+    const char* setPitchScatter(uint32_t pct)
+    {
+        static char msg[40];
+        if (winder::inRun() || positioningNow) return BUSY;
+        if (pct > MAX_PITCH_SCATTER_PCT)
+        {
+            snprintf(msg, sizeof(msg), "pitch scatter must be 0..%lu %%", MAX_PITCH_SCATTER_PCT);
+            return msg;
+        }
+        trav.pitchScatterPct = pct;
+        save();
+        return nullptr;
+    }
+
+    const char* setEndScatter(uint32_t um)
+    {
+        static char msg[40];
+        if (winder::inRun() || positioningNow) return BUSY;
+        um = roundTenth(um);
+        if (um > MAX_END_SCATTER_UM)
+        {
+            snprintf(msg, sizeof(msg), "end scatter must be 0..%lu mm", MAX_END_SCATTER_UM / 1000);
+            return msg;
+        }
+        trav.endScatterUm = um;
+        save();
+        return nullptr;
+    }
+
+    const char* setSeed(uint32_t seed)
+    {
+        static char msg[40];
+        if (winder::inRun() || positioningNow) return BUSY;
+        if (seed > MAX_SCATTER_SEED)
+        {
+            snprintf(msg, sizeof(msg), "seed must be 0..%lu", MAX_SCATTER_SEED);
+            return msg;
+        }
+        trav.seed = seed;
+        save();
+        return nullptr;
+    }
+
+    const char* newSeed()
+    {
+        uint32_t seed;
+        do seed = traverse_math::hash32(micros() ^ ARM_DWT_CYCCNT) % (MAX_SCATTER_SEED + 1);
+        while (seed == trav.seed);
+        return setSeed(seed);
+    }
+
     Winding winding()
     {
         Winding w{};
-        const WireSize* size = wireSize(trav.awg);
-        w.pitchUm            = size ? (trav.heavy ? size->heavyUm : size->singleUm) : MAX_WIRE_UM;
-        w.startUm            = trav.flangeUm + trav.marginUm;
-        uint32_t room        = trav.widthUm > 2 * trav.marginUm ? trav.widthUm - 2 * trav.marginUm : 0;
-        w.turnsPerLayer      = room / w.pitchUm;
-        w.spanUm             = w.turnsPerLayer * w.pitchUm;
-        w.layers             = w.turnsPerLayer ? (current.turns + w.turnsPerLayer - 1) / w.turnsPerLayer : 0;
+        w.pitchUm     = pitchUm();
+        w.startUm     = trav.flangeUm + trav.marginUm;
+        uint32_t room = trav.widthUm > 2 * trav.marginUm ? trav.widthUm - 2 * trav.marginUm : 0;
+        if (trav.scatter)
+        {
+            // A preview: counts the layers without touching the run's table
+            traverse_math::ScatterStats st;
+            w.spanUm = room;
+            if (!endScatterTooLarge() && traverse_math::makeScatter(nullptr, nullptr, MAX_SCATTER_LAYERS, &st,
+                                                                    scatterParams(), TRAVERSE_STEPS_PER_MM,
+                                                                    STEPS_PER_REV))
+            {
+                w.turnsPerLayer    = st.minTurns;
+                w.maxTurnsPerLayer = st.maxTurns;
+                w.maxPitchUm       = st.maxPitchUm;
+                w.layers           = st.layers;
+            }
+            return w;
+        }
+        w.turnsPerLayer    = room / w.pitchUm;
+        w.maxTurnsPerLayer = w.turnsPerLayer;
+        w.maxPitchUm       = w.pitchUm;
+        w.spanUm           = w.turnsPerLayer * w.pitchUm;
+        w.layers           = w.turnsPerLayer ? (current.turns + w.turnsPerLayer - 1) / w.turnsPerLayer : 0;
         return w;
     }
 
     const char* checkTraverse()
     {
         static char msg[48];
+        if (trav.scatter && endScatterTooLarge()) return "end scatter too large for this bobbin";
         Winding w = winding();
-        if (!w.turnsPerLayer) return "margins leave no room to wind";
+        if (!w.turnsPerLayer)
+        {
+            if (!trav.scatter) return "margins leave no room to wind";
+            snprintf(msg, sizeof(msg), "scatter: too many layers (max %lu)", MAX_SCATTER_LAYERS);
+            return msg;
+        }
         if (trav.flangeUm + trav.widthUm > TRAVERSE_TRAVEL_UM) return "bobbin past 50 mm - check flange / width";
-        float followUmS = w.pitchUm * winder::actualRpm(current.rpm) / 60.0f;
+        float followUmS = w.maxPitchUm * winder::actualRpm(current.rpm) / 60.0f;
         if (followUmS > TRAVERSE_MAX_FOLLOW_UM_S)
         {
             snprintf(msg, sizeof(msg), "guide too slow for %lu rpm (max %lu mm/s)", current.rpm,

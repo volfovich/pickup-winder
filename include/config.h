@@ -138,6 +138,16 @@ constexpr uint32_t DEFAULT_WIDTH_UM   = 12000;
 constexpr uint32_t DEFAULT_MARGIN_UM  = 1000;
 constexpr uint32_t DEFAULT_FLANGE_UM  = 5000; // inner face of the near flange, from home
 
+// Scatter winding: each layer's pitch is wire x 1 .. 1 + pitch %, and its
+// turnarounds land up to the end scatter inside the margins. The pattern
+// comes from the seed, so the same seed winds the same pickup again.
+constexpr uint32_t MAX_PITCH_SCATTER_PCT     = 100;
+constexpr uint32_t MAX_END_SCATTER_UM        = 3000;
+constexpr uint32_t MAX_SCATTER_SEED          = 99999;
+constexpr uint32_t MAX_SCATTER_LAYERS        = 4096; // the run's layer table: 12 bytes each
+constexpr uint32_t DEFAULT_PITCH_SCATTER_PCT = 30;
+constexpr uint32_t DEFAULT_END_SCATTER_UM    = 500;
+
 // TeensyStep4 counts position in int32_t
 static_assert((uint64_t)MAX_TURNS * STEPS_PER_REV <= INT32_MAX, "MAX_TURNS * STEPS_PER_REV must fit in int32");
 // TeensyStep4's TMR timer with 8 us pulses tops out around 118 kHz; keep well below
@@ -146,6 +156,9 @@ static_assert(DEFAULT_RPM >= MIN_RPM && DEFAULT_RPM <= MAX_RPM, "DEFAULT_RPM out
 // The traverse may move at most one step per spindle step (it does far less:
 // 0.07 for 42 AWG), and its fastest move must fit one step per tick
 static_assert(MAX_WIRE_UM * TRAVERSE_STEPS_PER_MM / 1000 < STEPS_PER_REV, "wire pitch too coarse");
+// Scatter: a layer's actual pitch is below 2x its target (the turns round down)
+static_assert(2 * MAX_WIRE_UM * (100 + MAX_PITCH_SCATTER_PCT) / 100 * TRAVERSE_STEPS_PER_MM / 1000 < STEPS_PER_REV,
+              "scatter pitch too coarse");
 static_assert((uint64_t)TRAVERSE_MOVE_UM_S * TRAVERSE_STEPS_PER_MM / 1000 < TRAVERSE_TICK_HZ, "traverse moves too fast");
 
 // ---------------------------------------------------------------------------

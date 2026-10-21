@@ -229,13 +229,33 @@ The guide settings, from **Setup → BOBBIN** or **Guide → BOBBIN**. Locked du
 | [ Margin      1.0 ]   [ Inner w.    12.0 ]       |
 | [ Flanges (rail mm)           5.0 - 17.0 ]       |
 |   0.071 mm wire: 140 turns/layer, 22 layers      |
-|  [     BACK     ]          [     GUIDE    ]      |
+|  [  BACK  ]     [ SCATTER ]     [  GUIDE  ]      |
 +--------------------------------------------------+
 ```
 - **Guide**, **First** (first layer away from / toward home), **AWG** (42 → 43 → 44) and **Insul.** (single / heavy) change on tap. The wire diameter including insulation comes from `WIRE_SIZES` in `config.h` and is the pitch per turn.
 - **Margin** is kept clear inside **both** flanges. **Inner w.** is the inner width, flange to flange (typing it moves flange 2). Both open the keypad in mm with one decimal.
 - **Flanges** are the carriage positions on the rail where the wire meets each flange's inner face. They are **taught on the Guide screen**; tapping this row opens it. See [TRAVERSE.md](TRAVERSE.md#how-the-bobbin-is-located).
-- The summary line shows the wire, turns per layer and layers for the set turns, or in red why it won't fit (no room between the margins, bobbin past 50 mm, guide too slow for the RPM).
+- The summary line shows the wire, turns per layer and layers for the set turns, or in red why it won't fit (no room between the margins, bobbin past 50 mm, guide too slow for the RPM). With scatter on: "0.071 mm wire, scatter: 104 layers".
+- **SCATTER** opens the Scatter screen.
+
+### Scatter
+Scatter winding, from **Bobbin → SCATTER**. Locked during a run. How it works: [TRAVERSE.md](TRAVERSE.md#scatter-winding).
+```
++--------------------------------------------------+
+| SCATTER                      ready - motor free  |
++--------------------------------------------------+
+| [ Scatter      ON ]   [ Pitch +%      30 ]       |
+| [ Ends mm     0.5 ]   [ Seed        4711 ]       |
+|  Each layer: pitch 0.071 - 0.092 mm, turns up    |
+|  to 0.5 mm inside the margins.                   |
+|        91 - 122 turns/layer, 104 layers          |
+|  [     BACK     ]          [   NEW SEED   ]      |
++--------------------------------------------------+
+```
+- **Scatter** toggles on tap. **Pitch +%** (0–100) and **Seed** (0–99999) open the keypad; **Ends mm** (0–3) opens it in mm with one decimal.
+- **NEW SEED** picks a random seed. The same seed winds the same pattern again.
+- The summary shows the fewest and most turns in a layer and the layers for the set turns, or in red why it won't fit (end scatter too large for the bobbin, too many layers, guide too slow for the RPM).
+- **BACK** returns to Bobbin. Idle's bobbin line ends in " S" while scatter is on.
 
 ### Guide
 Jog, home and teach the bobbin, from **Idle → GUIDE** or **Bobbin → GUIDE**.

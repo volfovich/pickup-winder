@@ -46,9 +46,8 @@ namespace ui::screens
         if (app::traverseRun())
         {
             const traverse_math::Pattern& p = app::runPattern();
-            uint32_t layers = (winder::targetSteps() / STEPS_PER_REV + p.turnsPerLayer - 1) / p.turnsPerLayer;
             snprintf(elapsed, sizeof(elapsed), "layer %lu/%lu", traverse_math::layerOf(p, winder::stepsDone()) + 1,
-                     layers);
+                     traverse_math::layerCount(p, winder::targetSteps()));
         }
         else snprintf(elapsed, sizeof(elapsed), "%s", fmtDuration(winder::windingMs(), t, sizeof(t)));
 

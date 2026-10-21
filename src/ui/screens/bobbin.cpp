@@ -2,6 +2,7 @@
 #include "config.h"
 #include "ui/screens/guide.h"
 #include "ui/screens/keypad.h"
+#include "ui/screens/scatter.h"
 #include "ui/screens/setup.h"
 #include "ui/ui.h"
 #include "winder.h"
@@ -46,8 +47,9 @@ namespace ui::screens
               {8, 102, 148, 32, "Margin"},
               {164, 102, 148, 32, "Inner w."},
               {8, 138, 304, 32, "Flanges (rail mm)"},
-              {8, 196, 148, 40, "BACK"},
-              {164, 196, 148, 40, "GUIDE"},
+              {8, 196, 96, 40, "BACK"},
+              {112, 196, 96, 40, "SCATTER"},
+              {216, 196, 96, 40, "GUIDE"},
           },
           group(buttons, BTN_COUNT)
     {
@@ -84,8 +86,12 @@ namespace ui::screens
         }
         char text[64];
         app::Winding w = app::winding();
-        snprintf(text, sizeof(text), "%lu.%03lu mm wire: %lu turns/layer, %lu layers", w.pitchUm / 1000,
-                 w.pitchUm % 1000, w.turnsPerLayer, w.layers);
+        if (shown.scatter)
+            snprintf(text, sizeof(text), "%lu.%03lu mm wire, scatter: %lu layers", w.pitchUm / 1000,
+                     w.pitchUm % 1000, w.layers);
+        else
+            snprintf(text, sizeof(text), "%lu.%03lu mm wire: %lu turns/layer, %lu layers", w.pitchUm / 1000,
+                     w.pitchUm % 1000, w.turnsPerLayer, w.layers);
         drawMessage(text, SUMMARY_Y, SUMMARY_H, theme::MUTED);
     }
 
@@ -128,6 +134,7 @@ namespace ui::screens
                 return;
             case F_FLANGES: show(guide); return; // taught there, by jogging to each flange
             case BTN_BACK: show(setup); return;
+            case BTN_SCATTER: show(scatter); return;
             case BTN_GUIDE: show(guide); return;
             default: return;
         }

@@ -7,8 +7,8 @@
 // its steps:
 // - Move: ramped moves for homing, jog and going to the start position;
 // - Follow: while winding, the position is computed from the spindle's live
-//   step count (traverse_math.h), so the guide follows the spindle's ramps,
-//   pauses and stops by itself.
+//   step count (traverse_math.h: even layers, or a scatter layer table), so
+//   the guide follows the spindle's ramps, pauses and stops by itself.
 // Position 0 is the home switch at the motor end; positions grow away from
 // the motor. The soft limits 0..TRAVERSE_TRAVEL_UM apply once homed.
 namespace traverse

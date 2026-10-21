@@ -41,6 +41,10 @@ namespace
             "  width MM          bobbin inner width (moves flange 2)\n"
             "  margin MM         kept clear inside both flanges\n"
             "  layer away|toward first layer direction\n"
+            "  scatter on|off    scatter winding (random pitch and turnarounds per layer)\n"
+            "  scatter pitch PCT each layer's pitch: wire x 1 .. 1 + PCT %\n"
+            "  scatter ends MM   turnarounds land up to this far inside the margins\n"
+            "  scatter seed N|new  the pattern (the same seed winds the same pattern)\n"
             "  endstop           home switch state\n"
             "While winding / paused:\n"
             "  stop         ramped stop -> paused (count stays exact; also stops the traverse)\n"
@@ -88,7 +92,13 @@ namespace
                       t.on ? "ON" : "off", t.awg, t.heavy ? "heavy" : "single", fmtMm(w.pitchUm, p, sizeof(p)),
                       fmtTenth(t.flangeUm, c, sizeof(c)), fmtTenth(t.flangeUm + t.widthUm, s, sizeof(s)),
                       fmtTenth(t.widthUm, a, sizeof(a)), fmtTenth(t.marginUm, b, sizeof(b)), t.firstAway ? "away" : "toward");
-        if (w.turnsPerLayer)
+        if (t.scatter)
+            Serial.printf("\n  scatter ON: pitch +%u %%, ends %s mm, seed %lu", t.pitchScatterPct,
+                          fmtTenth(t.endScatterUm, b, sizeof(b)), t.seed);
+        if (w.turnsPerLayer && t.scatter)
+            Serial.printf("\n  winds %s mm from %s: %lu-%lu turns/layer, %lu layers", fmtMm(w.spanUm, s, sizeof(s)),
+                          fmtMm(w.startUm, a, sizeof(a)), w.turnsPerLayer, w.maxTurnsPerLayer, w.layers);
+        else if (w.turnsPerLayer)
             Serial.printf("\n  winds %s mm from %s: %lu turns/layer, %lu layers", fmtMm(w.spanUm, s, sizeof(s)),
                           fmtMm(w.startUm, a, sizeof(a)), w.turnsPerLayer, w.layers);
         Serial.println();
@@ -122,9 +132,9 @@ namespace
             if (app::traverseRun())
             {
                 const traverse_math::Pattern& p = app::runPattern();
-                uint32_t layers = (winder::targetSteps() / STEPS_PER_REV + p.turnsPerLayer - 1) / p.turnsPerLayer;
                 Serial.printf("  layer %lu / %lu  guide max lag %ld steps\n",
-                              traverse_math::layerOf(p, winder::stepsDone()) + 1, layers, traverse::maxFollowError());
+                              traverse_math::layerOf(p, winder::stepsDone()) + 1,
+                              traverse_math::layerCount(p, winder::targetSteps()), traverse::maxFollowError());
             }
         }
         else if (winder::lastOutcome() != winder::Outcome::None)
@@ -276,6 +286,21 @@ namespace
             else Serial.println("ERR: layer away|toward");
             printTraverseSettings();
         }
+        else if (!strcmp(cmd, "scatter"))
+        {
+            char* val = arg ? strchr(arg, ' ') : nullptr;
+            if (val) *val++ = '\0';
+            uint32_t v;
+            int32_t um;
+            if (arg && !strcmp(arg, "on")) report(app::setScatter(true));
+            else if (arg && !strcmp(arg, "off")) report(app::setScatter(false));
+            else if (arg && !strcmp(arg, "pitch") && parseUint(val, v)) report(app::setPitchScatter(v));
+            else if (arg && !strcmp(arg, "ends") && parseMm(val, um) && um >= 0) report(app::setEndScatter(um));
+            else if (arg && !strcmp(arg, "seed") && val && !strcmp(val, "new")) report(app::newSeed());
+            else if (arg && !strcmp(arg, "seed") && parseUint(val, v)) report(app::setSeed(v));
+            else Serial.println("ERR: scatter on|off, scatter pitch PCT, scatter ends MM, scatter seed N|new");
+            printTraverseSettings();
+        }
         else if (!strcmp(cmd, "home"))
         {
             if (report(app::home())) Serial.println("homing...");
@@ -359,6 +384,10 @@ namespace
 
     void printTraverseSummary()
     {
+        const traverse_math::Pattern& p = app::runPattern();
+        if (p.table)
+            Serial.printf("  scatter seed %lu, %lu layers\n", app::traverseSettings().seed,
+                          traverse_math::layerCount(p, winder::targetSteps()));
         Serial.printf("  traverse max lag %ld step(s), now at %.3f mm\n", traverse::maxFollowError(),
                       traverse::positionMm());
         printTraversePulseCheck();

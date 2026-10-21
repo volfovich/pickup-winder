@@ -10,7 +10,8 @@ namespace ui::screens
     // and insulation), margin at the flanges, inner width (keypad in mm,
     // 0.1 mm steps), and the flanges' carriage positions (taught on the Guide
     // screen; tapping them opens it), with the resulting turns per layer.
-    // Locked while a run is in progress.
+    // SCATTER opens the scatter winding settings. Locked while a run is in
+    // progress.
     class Bobbin : public Screen
     {
      public:
@@ -24,7 +25,7 @@ namespace ui::screens
         void drawSummary();
 
         enum : uint8_t {
-            F_ON, F_FIRST, F_AWG, F_INSUL, F_MARGIN, F_WIDTH, F_FLANGES, BTN_BACK, BTN_GUIDE, BTN_COUNT
+            F_ON, F_FIRST, F_AWG, F_INSUL, F_MARGIN, F_WIDTH, F_FLANGES, BTN_BACK, BTN_SCATTER, BTN_GUIDE, BTN_COUNT
         };
         static constexpr uint8_t FIELDS = 7;
         Button buttons[BTN_COUNT];

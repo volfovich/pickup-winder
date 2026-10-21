@@ -2,7 +2,7 @@
 
 The wire guide lays the wire in even layers across the bobbin.
 
-**Status:** **wired and brought up on hardware** (checklist below, all 9 steps). Homing repeats, jogs measure 1.00 mm, and dry winds at 300 and 1500 RPM end exactly at the pattern's position with both pulse checks `OK` and a maximum guide lag of 1 microstep, also across six STOP / RESUMEs in one run. Still to do: a real wind with wire, to check that the layers lie flat. The guide is **off by default** (`traverse off`): the machine winds as before until it's switched on.
+**Status:** **wired and brought up on hardware** (checklist below, all 9 steps). **Scatter winding** is implemented and host-tested, not yet tried on hardware (see [Scatter winding](#scatter-winding)). Homing repeats, jogs measure 1.00 mm, and dry winds at 300 and 1500 RPM end exactly at the pattern's position with both pulse checks `OK` and a maximum guide lag of 1 microstep, also across six STOP / RESUMEs in one run. Still to do: a real wind with wire, to check that the layers lie flat. The guide is **off by default** (`traverse off`): the machine winds as before until it's switched on.
 
 Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](README.md). Touch UI: [UI.md](UI.md).
 
@@ -80,6 +80,7 @@ Full screen descriptions: [UI.md](UI.md#bobbin).
 
 - **Guide** (Idle → GUIDE): live carriage position, jog −10 … +10 mm, **HOME** (STOP while moving), **SET FLANGE 1 / 2** to teach the bobbin, **GO TO FLANGE 1 / 2** to check it.
 - **Bobbin** (Setup → BOBBIN, or Guide → BOBBIN): guide on / off, first layer away / toward, AWG 42 / 43 / 44, single / heavy insulation, margin, inner width, the taught flanges, and the result: "0.071 mm wire: 140 turns/layer, 22 layers", or in red why it won't fit.
+- **Scatter** (Bobbin → SCATTER): scatter on / off, pitch +%, end scatter, seed, **NEW SEED**, and the result: "91 - 122 turns/layer, 104 layers".
 - **Idle** shows the bobbin to wind ("42 AWG, 12.0 mm, 22 layers"), and **HOME GUIDE!** in orange while the guide is on but not homed.
 - **START** with the guide on first moves the guide to the start position (START becomes CANCEL), then starts the spindle.
 - **Running** shows **layer n / N**; **Done** shows the spindle and guide pulse checks.
@@ -108,12 +109,33 @@ x      = start + N · pitch − off                   layers moving toward home
   - reversals land exactly on `start` and `start + N · pitch`;
   - the guide never needs more than 1 step per spindle step;
   - the layer span is within 0.25 µm of N × wire.
+- `test/traverse_math_host.cpp` checks the even layers against this formula at every step, and the scatter table (below): `c++ -std=c++17 -O2 -Isrc test/traverse_math_host.cpp -o /tmp/tm && /tmp/tm`.
 
 Why this design:
 - the guide follows the spindle's ramps automatically, so the wire spacing is the same at any speed;
 - after STOP / RESUME, E-STOP or a wire break, the guide is exactly where the wire belongs, because its position comes from the turn count;
 - the turn count is untouched: the spindle stays the only master;
-- scatter winding later is just a different `x(S)` function.
+- scatter winding is just a different `x(S)` function (below).
+
+### Scatter winding
+
+Even layers make a tightly packed coil. **Scatter winding** varies each layer, as hand-guided pickups have it: less self-capacitance, a brighter tone. Two kinds, each adjustable, both from a **seed**:
+- **Pitch scatter P %:** each layer gets its own pitch, at random from wire × 1.00 to wire × (1 + P/100). It never goes below the wire: the turns per layer round down.
+- **End scatter E mm:** each turnaround lands at random up to E inside the margin, on its side, so the layers end unevenly short of the flanges instead of piling up there.
+
+The **seed** picks the pattern: the same seed (with the same bobbin, wire and turns) winds exactly the same pickup again, e.g. for a matched pair. **NEW SEED** / `scatter seed new` picks a random one.
+
+How it is computed:
+- At START, `traverse_math::makeScatter()` builds a **layer table**: for each layer the turn it starts at and its two turnaround points, in traverse steps. Turnaround *i* is random in `near … near + E` or `far − E … far` (alternating sides; `near` = flange 1 + margin, `far` = flange 2 − margin, so scatter uses the full room between the margins). The layer's turns are `floor(span / random pitch)`.
+- The random numbers are a stateless integer hash of (seed, layer), so the Teensy and the host test build identical tables.
+- The step ISR looks the layer up for the spindle's step count `S` (a binary search) and interpolates: `x = from + u · (to − from) / (n · 3200)`, with `u` the spindle steps into the layer. Each layer ends exactly where the next one starts.
+- The guide position is still a **fixed function of `S`**: pause / resume, E-STOP and both pulse checks work as with even layers.
+- The table holds up to 4,096 layers (48 KB of RAM, written only at START; the settings are locked during a run). The screens preview the same table without storing it, so the layers they show are the ones that will be wound.
+- With scatter off, the even-layer formula above is used unchanged.
+
+Checks at START (and in red on the Bobbin / Scatter screens): the room between the margins must exceed 2 × E plus two wire diameters; at most 4,096 layers; the guide speed check uses the **largest** pitch in the table.
+
+**Host test** (`test/traverse_math_host.cpp`, 7 scatter cases up to 11,000 turns, at every spindle step): at most 1 guide step per spindle step, always inside the margins, exactly on the turnarounds at layer boundaries, turnarounds within their bands, pitch never below the wire, the preview equal to the table, the same seed giving the same table and another seed another one.
 
 ### Step generation (`src/traverse.cpp`)
 
@@ -153,7 +175,7 @@ Before homing, `jog` works without limits but at most ±5 mm per command; `goto`
 
 ### Settings and commands
 
-Saved in EEPROM (settings version 3; older settings keep the spindle values, the guide goes to its defaults). Lengths are kept in 0.1 mm steps. Also on the Bobbin screen.
+Saved in EEPROM (settings version 4; version 3 keeps everything and adds scatter, off; older settings keep the spindle values, the guide goes to its defaults). Lengths are kept in 0.1 mm steps. Also on the Bobbin screen.
 
 | Command | Setting | Range / default |
 |---|---|---|
@@ -165,6 +187,10 @@ Saved in EEPROM (settings version 3; older settings keep the spindle values, the
 | `width MM` | inner width, flange to flange (moves flange 2) | 2–48, default 12.0 |
 | `margin MM` | kept clear inside both flanges | 0–5, default 1.0 |
 | `layer away\|toward` | first layer direction | away |
+| `scatter on\|off` | scatter winding | off |
+| `scatter pitch PCT` | pitch scatter: each layer's pitch is wire × 1 … 1 + PCT % | 0–100, default 30 |
+| `scatter ends MM` | end scatter: turnarounds up to this far inside the margins | 0–3, default 0.5 |
+| `scatter seed N\|new` | the pattern; `new` = a random one | 0–99999, default 1 |
 
 Wire diameters including insulation (`WIRE_SIZES` in `config.h`; nominal, adjust to your wire): single build 42 = 0.071, 43 = 0.063, 44 = 0.056 mm; heavy build 42 = 0.076, 43 = 0.069, 44 = 0.061 mm.
 
@@ -181,6 +207,7 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 - [x] Hardware bring-up (checklist above), 2026-10-21
 - [x] UI-6: Guide, Bobbin and Diagnostics screens, flange teaching, layer n / N on Running, guide pulse check on Done (see [UI.md](UI.md))
 - [ ] EN pull-ups (10 kΩ to 3.3 V) on both drivers
+- [x] Scatter winding: layer table in `traverse_math.h` (host-tested), settings, serial commands, Scatter screen
 
 ## Tests (on hardware)
 
@@ -190,3 +217,5 @@ Motion: `home`, `jog MM` (e.g. `jog -0.5`), `goto MM`. Status: `endstop`, `statu
 - [x] `stop` mid-layer, then `resume`: the carriage continues from where it was (six pauses in one 1500 RPM run, end position and pulse checks exact)
 - [x] Count and driver pulse checks stay `OK` on both axes at 1500 RPM
 - [ ] Real wind with wire: the layers lie flat (else adjust the pitch in `WIRE_SIZES`)
+- [ ] Scatter dry winds at 500 and 1200 RPM (+30 %, 0.5 mm): pulse checks `OK`, max lag ≤ 2 microsteps, turnarounds vary inside the margins; `stop` / `resume` mid-layer; the same seed twice ends at the same position
+- [ ] Scatter wind with wire

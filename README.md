@@ -141,6 +141,7 @@ pio device monitor      # serial console, 115200, local echo on
 | `flange1 MM\|here` / `flange2 MM\|here` | idle | taught carriage positions of the bobbin's flanges |
 | `width MM` / `margin MM` | idle | inner width (moves flange 2), margin inside both flanges |
 | `layer away\|toward` | idle | direction of the first layer |
+| `scatter on\|off` / `scatter pitch PCT` / `scatter ends MM` / `scatter seed N\|new` | idle | scatter winding (see [TRAVERSE.md](TRAVERSE.md#scatter-winding)) |
 | `endstop` | any time | home switch state (to check its polarity) |
 | `status` | any time | settings, drivers, guide and progress |
 | `drv` | any time | both TMC2209s: registers and status |

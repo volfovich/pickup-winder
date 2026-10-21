@@ -6,11 +6,11 @@
 | Touch front panel UI-1 … UI-5 | **done**, tested on hardware | [UI.md](UI.md) |
 | Wire traverse | **done**, brought up on hardware (dry winds at 300 / 1500 RPM exact); next: a real wind with wire | [TRAVERSE.md](TRAVERSE.md) |
 | UI-6: traverse screens (Bobbin, Guide, layer n / N) | **done**, tested on hardware | [UI.md](UI.md) |
+| Scatter winding (random pitch and turnarounds per layer, from a seed) | **done**, host-tested; next: dry winds, then with wire | [TRAVERSE.md](TRAVERSE.md#scatter-winding) |
 | UI-7: presets | optional, SD card | [UI.md](UI.md) |
 
 ## Later / ideas
 
-- Scatter winding (vary pitch or turnaround points per layer, for tone)
 - Presets / recipes on the SD card
 - Once-per-turn spindle index sensor (hall or optical) for real-time mechanical skip detection
 - Patch TeensyStep4's timer to a finer prescaler for closer-to-setpoint RPM (e.g. ~1199.8 instead of 1204.0)

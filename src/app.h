@@ -22,11 +22,20 @@ namespace app
         uint32_t flangeUm; // flange 1 (nearer the rail's home end): carriage position, from home,
                            // where the wire meets its inner face. Flange 2 = flange 1 + width.
         bool firstAway;    // the first layer moves away from home
+        // Scatter winding (traverse_math::makeScatter): each layer's pitch is
+        // wire x 1 .. 1 + pitch %, its turnarounds up to endScatterUm inside
+        // the margins; the same seed winds the same pattern again
+        bool scatter;
+        uint8_t pitchScatterPct;
+        uint32_t endScatterUm;
+        uint32_t seed;
 
         bool operator==(const TraverseSettings& o) const
         {
             return on == o.on && awg == o.awg && heavy == o.heavy && widthUm == o.widthUm &&
-                   marginUm == o.marginUm && flangeUm == o.flangeUm && firstAway == o.firstAway;
+                   marginUm == o.marginUm && flangeUm == o.flangeUm && firstAway == o.firstAway &&
+                   scatter == o.scatter && pitchScatterPct == o.pitchScatterPct && endScatterUm == o.endScatterUm &&
+                   seed == o.seed;
         }
         bool operator!=(const TraverseSettings& o) const { return !(*this == o); }
     };
@@ -36,8 +45,10 @@ namespace app
     {
         uint32_t pitchUm;       // wire diameter incl. insulation
         uint32_t startUm;       // near edge of the winding, from home (flange + margin)
-        uint32_t spanUm;        // turnsPerLayer x pitch
-        uint32_t turnsPerLayer; // 0: no room between the margins
+        uint32_t spanUm;        // turnsPerLayer x pitch; scatter: margin to margin
+        uint32_t turnsPerLayer; // 0: no room between the margins; scatter: the fewest in a layer
+        uint32_t maxTurnsPerLayer;
+        uint32_t maxPitchUm;    // the guide's fastest travel per turn
         uint32_t layers;        // for the set turns
     };
 
@@ -73,6 +84,11 @@ namespace app
     const char* setFlange1Here(); // the guide's current position (needs homing)
     const char* setFlange2Here();
     const char* setFirstAway(bool away);
+    const char* setScatter(bool on);
+    const char* setPitchScatter(uint32_t pct);
+    const char* setEndScatter(uint32_t um); // rounds to 0.1 mm
+    const char* setSeed(uint32_t seed);
+    const char* newSeed(); // a random one
     Winding winding();
     // Checks that the winding fits the bobbin, the slide and the RPM
     const char* checkTraverse();
