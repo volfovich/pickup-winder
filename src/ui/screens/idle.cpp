@@ -2,6 +2,7 @@
 #include "app.h"
 #include "traverse.h"
 #include "ui/screens/guide.h"
+#include "ui/screens/presets.h"
 #include "ui/screens/setup.h"
 #include "ui/ui.h"
 
@@ -21,16 +22,29 @@ namespace ui::screens
     Idle::Idle()
         : buttons{
               {8, 128, 304, 56, "START", theme::GO},
-              {8, 190, 148, 46, "SETUP"},
-              {164, 190, 148, 46, "GUIDE"},
+              {8, 190, 96, 46, "SETUP"},
+              {112, 190, 96, 46, "PRESETS"},
+              {216, 190, 96, 46, "GUIDE"},
           },
           group(buttons, BTN_COUNT)
     {
     }
 
+    // The loaded preset's name, " *" when changed since; IDLE without one
+    void Idle::drawTitle()
+    {
+        static char title[app::PRESET_NAME_MAX + 3];
+        shownPreset         = app::activePreset();
+        shownModified       = app::presetModified();
+        const app::Preset* p = shownPreset >= 0 ? app::preset(shownPreset) : nullptr;
+        if (p) snprintf(title, sizeof(title), "%s%s", p->name, shownModified ? " *" : "");
+        else strlcpy(title, "IDLE", sizeof(title));
+        drawStatusBar(title);
+    }
+
     void Idle::enter()
     {
-        drawStatusBar("IDLE");
+        drawTitle();
         shown            = app::settings();
         shownTrav        = app::traverseSettings();
         shownPositioning = false;
@@ -127,6 +141,7 @@ namespace ui::screens
             shownTrav = app::traverseSettings();
             drawValues();
         }
+        if (app::activePreset() != shownPreset || app::presetModified() != shownModified) drawTitle();
     }
 
     void Idle::onTouch(const touch::Event& e)
@@ -142,6 +157,7 @@ namespace ui::screens
                 }
                 break;
             case BTN_SETUP: show(setup); break;
+            case BTN_PRESETS: show(presets); break;
             case BTN_GUIDE: show(guide); break;
             default: break;
         }

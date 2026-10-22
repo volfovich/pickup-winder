@@ -63,6 +63,32 @@ namespace app
         constexpr uint32_t SETTINGS_MAGIC   = 0x57494E44; // "WIND"
         constexpr uint16_t SETTINGS_VERSION = 4;
 
+        // Presets: a header (the active slot), then one checksummed record
+        // per slot. A record that fails its checks is an empty slot, so
+        // unwritten EEPROM reads as no presets. `version` is the settings
+        // version the record was saved with: a change to TraverseSettings
+        // needs an upgrade path here too.
+        struct PresetHeader
+        {
+            uint32_t magic;
+            int8_t active;
+            uint32_t check;
+        };
+        struct StoredPreset
+        {
+            uint16_t version;
+            Preset p;
+            uint32_t check;
+        };
+        constexpr uint32_t PRESETS_MAGIC = 0x50534554; // "PSET"
+        constexpr int PRESET_SLOT_ADDR   = EEPROM_ADDR_PRESETS + sizeof(PresetHeader);
+        static_assert(EEPROM_ADDR_SETTINGS + sizeof(Stored) <= EEPROM_ADDR_PRESETS, "settings overlap the presets");
+        static_assert(PRESET_SLOT_ADDR + PRESET_SLOTS * sizeof(StoredPreset) <= E2END + 1, "presets past the EEPROM");
+
+        Preset presets[PRESET_SLOTS];
+        bool presetUsed[PRESET_SLOTS] = {};
+        int8_t activeSlot             = -1;
+
         // Driver fault watch while winding: spindle and traverse take turns
         uint32_t lastPollMs  = 0;
         uint32_t pollCount   = 0;
@@ -182,6 +208,46 @@ namespace app
                                           current.turns};
         }
 
+        void savePresetHeader()
+        {
+            PresetHeader h;
+            memset(&h, 0, sizeof(h));
+            h.magic  = PRESETS_MAGIC;
+            h.active = activeSlot;
+            h.check  = checksum(h);
+            EEPROM.put(EEPROM_ADDR_PRESETS, h);
+        }
+
+        void writePresetSlot(uint8_t slot)
+        {
+            StoredPreset d;
+            memset(&d, 0, sizeof(d)); // padding too, for a stable checksum
+            if (presetUsed[slot])
+            {
+                d.version = SETTINGS_VERSION;
+                d.p       = presets[slot];
+                d.check   = checksum(d);
+            }
+            EEPROM.put(PRESET_SLOT_ADDR + slot * sizeof(StoredPreset), d); // all zero: fails its check, empty
+        }
+
+        void loadPresets()
+        {
+            for (uint8_t i = 0; i < PRESET_SLOTS; i++)
+            {
+                StoredPreset d;
+                EEPROM.get(PRESET_SLOT_ADDR + i * sizeof(StoredPreset), d);
+                d.p.name[PRESET_NAME_MAX] = '\0';
+                presetUsed[i] = d.version == SETTINGS_VERSION && d.check == checksum(d) && d.p.name[0] &&
+                                valid(d.p.s) && valid(d.p.t);
+                if (presetUsed[i]) presets[i] = d.p;
+            }
+            PresetHeader h;
+            EEPROM.get(EEPROM_ADDR_PRESETS, h);
+            bool ok    = h.magic == PRESETS_MAGIC && h.check == checksum(h);
+            activeSlot = ok && h.active >= 0 && h.active < PRESET_SLOTS && presetUsed[h.active] ? h.active : -1;
+        }
+
         bool makeRunPattern()
         {
             if (trav.scatter)
@@ -289,6 +355,7 @@ namespace app
 
     void begin()
     {
+        loadPresets();
         Stored d;
         EEPROM.get(EEPROM_ADDR_SETTINGS, d);
         if (d.magic == SETTINGS_MAGIC && d.version == SETTINGS_VERSION && d.check == checksum(d) && valid(clampRpm(d.s)) &&
@@ -640,6 +707,73 @@ namespace app
         do seed = traverse_math::hash32(micros() ^ ARM_DWT_CYCCNT) % (MAX_SCATTER_SEED + 1);
         while (seed == trav.seed);
         return setSeed(seed);
+    }
+
+    const Preset* preset(uint8_t slot)
+    {
+        return slot < PRESET_SLOTS && presetUsed[slot] ? &presets[slot] : nullptr;
+    }
+
+    const char* savePreset(uint8_t slot, const char* name)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        if (slot >= PRESET_SLOTS) return "preset slot must be 1..10";
+        // Trimmed, printable ASCII only
+        while (*name == ' ') name++;
+        size_t len = strlen(name);
+        while (len && name[len - 1] == ' ') len--;
+        if (len == 0 || len > PRESET_NAME_MAX) return "name: 1 to 16 characters";
+        for (size_t i = 0; i < len; i++)
+            if (name[i] < 0x20 || name[i] > 0x7E) return "name: printable characters only";
+
+        Preset& p = presets[slot];
+        memset(&p, 0, sizeof(p));
+        memcpy(p.name, name, len);
+        p.s              = current;
+        p.t              = trav;
+        presetUsed[slot] = true;
+        writePresetSlot(slot);
+        activeSlot = slot;
+        savePresetHeader();
+        return nullptr;
+    }
+
+    const char* loadPreset(uint8_t slot)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        const Preset* p = preset(slot);
+        if (!p) return "that preset slot is empty";
+        current = p->s;
+        trav    = p->t;
+        save();
+        activeSlot = slot;
+        savePresetHeader();
+        return nullptr;
+    }
+
+    const char* deletePreset(uint8_t slot)
+    {
+        if (winder::inRun() || positioningNow) return BUSY;
+        if (!preset(slot)) return "that preset slot is empty";
+        presetUsed[slot] = false;
+        writePresetSlot(slot);
+        if (activeSlot == slot)
+        {
+            activeSlot = -1;
+            savePresetHeader();
+        }
+        return nullptr;
+    }
+
+    int8_t activePreset()
+    {
+        return activeSlot;
+    }
+
+    bool presetModified()
+    {
+        const Preset* p = activeSlot >= 0 ? preset(activeSlot) : nullptr;
+        return p && (p->s != current || p->t != trav);
     }
 
     Winding winding()

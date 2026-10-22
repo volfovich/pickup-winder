@@ -7,11 +7,11 @@
 | Wire traverse | **done**, brought up on hardware (dry winds at 300 / 1500 RPM exact); next: a real wind with wire | [TRAVERSE.md](TRAVERSE.md) |
 | UI-6: traverse screens (Bobbin, Guide, layer n / N) | **done**, tested on hardware | [UI.md](UI.md) |
 | Scatter winding (random pitch and turnarounds per layer, from a seed) | **done**, host-tested; next: dry winds, then with wire | [TRAVERSE.md](TRAVERSE.md#scatter-winding) |
-| UI-7: presets | optional, SD card | [UI.md](UI.md) |
+| UI-7: presets (10 named slots in EEPROM) | **done**, tested on hardware | [UI.md](UI.md#presets) |
 
 ## Later / ideas
 
-- Presets / recipes on the SD card
+- More presets, editable on a PC: on the SD card
 - Once-per-turn spindle index sensor (hall or optical) for real-time mechanical skip detection
 - Patch TeensyStep4's timer to a finer prescaler for closer-to-setpoint RPM (e.g. ~1199.8 instead of 1204.0)
 - Temperature readout: the TMC2209 only flags 120 °C and above, so a real reading needs NTC thermistors (driver heatsink, motor) on free analog pins 17 / 18; show them on Running / Driver, pause the run at a set limit. Avoid DS18B20 (1-wire blocks interrupts ~60 µs per bit, jittering the spindle steps)

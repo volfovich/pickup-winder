@@ -47,7 +47,8 @@ constexpr uint8_t DISPLAY_ROTATION = 3;
 // EEPROM layout (Teensy 4.0: 1080 bytes)
 // ---------------------------------------------------------------------------
 constexpr int EEPROM_ADDR_TOUCH_CAL = 0;  // 64 bytes reserved
-constexpr int EEPROM_ADDR_SETTINGS  = 64; // settings (UI-2)
+constexpr int EEPROM_ADDR_SETTINGS  = 64;  // settings (UI-2), room up to the presets
+constexpr int EEPROM_ADDR_PRESETS   = 256; // presets (UI-7): header + 10 slots
 
 // ---------------------------------------------------------------------------
 // TMC2209 driver

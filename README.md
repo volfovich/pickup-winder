@@ -142,6 +142,8 @@ pio device monitor      # serial console, 115200, local echo on
 | `width MM` / `margin MM` | idle | inner width (moves flange 2), margin inside both flanges |
 | `layer away\|toward` | idle | direction of the first layer |
 | `scatter on\|off` / `scatter pitch PCT` / `scatter ends MM` / `scatter seed N\|new` | idle | scatter winding (see [TRAVERSE.md](TRAVERSE.md#scatter-winding)) |
+| `presets` | any time | list the 10 preset slots (`*` = loaded) |
+| `preset save N NAME` / `preset load N` / `preset delete N` | idle | store the current settings as a named preset, load one, empty a slot (see [UI.md](UI.md#presets)) |
 | `endstop` | any time | home switch state (to check its polarity) |
 | `status` | any time | settings, drivers, guide and progress |
 | `drv` | any time | both TMC2209s: registers and status |

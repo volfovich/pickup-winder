@@ -12,6 +12,7 @@
 namespace
 {
     char line[64];
+    char typed[64]; // the line as typed: preset names keep their case
     size_t lineLen = 0;
 
     uint32_t lastProgressMs = 0;
@@ -45,6 +46,11 @@ namespace
             "  scatter pitch PCT each layer's pitch: wire x 1 .. 1 + PCT %\n"
             "  scatter ends MM   turnarounds land up to this far inside the margins\n"
             "  scatter seed N|new  the pattern (the same seed winds the same pattern)\n"
+            "Presets (only while idle; slots 1..10, all Setup / Bobbin / Scatter settings):\n"
+            "  presets             list them\n"
+            "  preset save N NAME  the current settings, as NAME (up to 16 characters)\n"
+            "  preset load N       into the current settings\n"
+            "  preset delete N\n"
             "  endstop           home switch state\n"
             "While winding / paused:\n"
             "  stop         ramped stop -> paused (count stays exact; also stops the traverse)\n"
@@ -103,6 +109,35 @@ namespace
                           fmtMm(w.startUm, a, sizeof(a)), w.turnsPerLayer, w.layers);
         Serial.println();
         if (const char* err = app::checkTraverse()) Serial.printf("  WARNING: %s\n", err);
+    }
+
+    void printPresets()
+    {
+        char a[16], b[16], c[16];
+        for (uint8_t i = 0; i < app::PRESET_SLOTS; i++)
+        {
+            const app::Preset* p = app::preset(i);
+            bool active          = i == app::activePreset();
+            if (!p)
+            {
+                Serial.printf("  %2u  - empty -\n", i + 1);
+                continue;
+            }
+            Serial.printf("%s %2u  %-16s  %lu turns  %lu rpm  accel %lu  %s", active ? "*" : " ", i + 1, p->name,
+                          p->s.turns, p->s.rpm, p->s.accelRpmPerS, p->s.dir == winder::Dir::CW ? "cw" : "ccw");
+            if (p->t.on)
+            {
+                Serial.printf("  %u AWG %s  flanges %s - %s  margin %s  first %s", p->t.awg,
+                              p->t.heavy ? "heavy" : "single", fmtTenth(p->t.flangeUm, a, sizeof(a)),
+                              fmtTenth(p->t.flangeUm + p->t.widthUm, b, sizeof(b)),
+                              fmtTenth(p->t.marginUm, c, sizeof(c)), p->t.firstAway ? "away" : "toward");
+                if (p->t.scatter)
+                    Serial.printf("  scatter +%u %% ends %s seed %lu", p->t.pitchScatterPct,
+                                  fmtTenth(p->t.endScatterUm, a, sizeof(a)), p->t.seed);
+            }
+            else Serial.print("  guide off");
+            Serial.println(active && app::presetModified() ? "  (modified)" : "");
+        }
     }
 
     void printTraverseState()
@@ -301,6 +336,37 @@ namespace
             else Serial.println("ERR: scatter on|off, scatter pitch PCT, scatter ends MM, scatter seed N|new");
             printTraverseSettings();
         }
+        else if (!strcmp(cmd, "presets")) printPresets();
+        else if (!strcmp(cmd, "preset"))
+        {
+            // preset save|load|delete N [NAME]
+            char* num = arg ? strchr(arg, ' ') : nullptr;
+            if (num)
+            {
+                *num++ = '\0';
+                while (*num == ' ') num++;
+            }
+            char* name = num ? strchr(num, ' ') : nullptr;
+            if (name) *name++ = '\0';
+            uint32_t slot;
+            bool ok = parseUint(num, slot) && slot >= 1 && slot <= app::PRESET_SLOTS;
+            if (ok && arg && !strcmp(arg, "save") && name) report(app::savePreset(slot - 1, typed + (name - line)));
+            else if (ok && arg && !strcmp(arg, "load") && !name)
+            {
+                if (report(app::loadPreset(slot - 1)))
+                {
+                    printSettings();
+                    printTraverseSettings();
+                }
+            }
+            else if (ok && arg && !strcmp(arg, "delete") && !name) report(app::deletePreset(slot - 1));
+            else
+            {
+                Serial.println("ERR: preset save N NAME | preset load N | preset delete N (N = 1..10)");
+                return;
+            }
+            printPresets();
+        }
         else if (!strcmp(cmd, "home"))
         {
             if (report(app::home())) Serial.println("homing...");
@@ -327,6 +393,7 @@ namespace
             if (c == '\r' || c == '\n')
             {
                 line[lineLen] = '\0';
+                memcpy(typed, line, lineLen + 1);
                 for (size_t i = 0; i < lineLen; i++) line[i] = tolower(line[i]);
                 handleCommand(line);
                 lineLen = 0;

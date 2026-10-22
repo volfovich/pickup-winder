@@ -8,7 +8,8 @@
 namespace ui::screens
 {
     // Home screen: turns, direction, RPM and the bobbin to wind; START,
-    // SETUP, GUIDE.
+    // SETUP, PRESETS, GUIDE. The title is the loaded preset's name (" *"
+    // once the settings differ from it), else IDLE.
     class Idle : public Screen
     {
      public:
@@ -22,8 +23,9 @@ namespace ui::screens
         void followPositioning();
         bool guideWarning();
         void setGuideLabel();
+        void drawTitle();
 
-        enum : uint8_t { BTN_START, BTN_SETUP, BTN_GUIDE, BTN_COUNT };
+        enum : uint8_t { BTN_START, BTN_SETUP, BTN_PRESETS, BTN_GUIDE, BTN_COUNT };
         Button buttons[BTN_COUNT];
         ButtonGroup group;
         winder::Settings shown{};
@@ -32,6 +34,8 @@ namespace ui::screens
         uint32_t msgUntilMs  = 0;
         bool shownPositioning = false;
         bool shownGuideWarn   = false;
+        int8_t shownPreset    = -1;
+        bool shownModified    = false;
     };
 
     extern Idle idle;

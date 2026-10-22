@@ -52,7 +52,19 @@ namespace app
         uint32_t layers;        // for the set turns
     };
 
-    void begin(); // loads settings from EEPROM (defaults if empty/invalid)
+    // A named set of settings for one kind of wind: everything in Setup,
+    // Bobbin and Scatter, the taught flanges included. Not the spindle
+    // current or the touch calibration (they belong to the machine).
+    constexpr uint8_t PRESET_SLOTS   = 10;
+    constexpr size_t PRESET_NAME_MAX = 16;
+    struct Preset
+    {
+        char name[PRESET_NAME_MAX + 1];
+        winder::Settings s;
+        TraverseSettings t;
+    };
+
+    void begin(); // loads settings and presets from EEPROM (defaults if empty/invalid)
 
     // Call every loop pass. Returns winder::Event::Paused / Ended once when a
     // run pauses or ends (see winder::lastOutcome() / winder::printSummary()).
@@ -89,6 +101,15 @@ namespace app
     const char* setEndScatter(uint32_t um); // rounds to 0.1 mm
     const char* setSeed(uint32_t seed);
     const char* newSeed(); // a random one
+
+    // Presets (EEPROM). Slots are 0..PRESET_SLOTS-1; names 1..16 printable
+    // characters. Loading replaces the current settings (and saves them).
+    const Preset* preset(uint8_t slot); // nullptr: empty
+    const char* savePreset(uint8_t slot, const char* name);
+    const char* loadPreset(uint8_t slot);
+    const char* deletePreset(uint8_t slot);
+    int8_t activePreset(); // slot last loaded or saved, -1: none (kept across reboots)
+    bool presetModified(); // the current settings differ from the active preset
     Winding winding();
     // Checks that the winding fits the bobbin, the slide and the RPM
     const char* checkTraverse();
