@@ -13,7 +13,10 @@ Overall roadmap: [TBD.md](TBD.md). Spindle and serial console: [README.md](READM
   - Pickup bobbins are ~7–15 mm wide, so 50 mm of travel is plenty. Soft travel limits 0–50 mm after homing.
 - **Driver:** the spare **TMC2209** (not the A4988):
   - shares the existing UART line; **address 1** by tying its MS1 to 3.3 V (MS2 to GND);
-  - **spreadCycle**: the guide reverses at full speed at every layer end, and stealthChop copes worse with sudden speed changes. A missed traverse step would shift every later layer, so reliability wins over noise. `TRAVERSE_STEALTHCHOP` in `config.h` switches it;
+  - **hybrid: spreadCycle while moving, stealthChop at standstill.** The driver switches by itself below 0.2 mm/s (`TPWMTHRS`, set from `TRAVERSE_STEALTH_BELOW_UM_S` in `config.h`; 0 = spreadCycle only):
+    - **moving in spreadCycle:** the guide reverses at full speed at every layer end, and stealthChop copes worse with sudden speed changes. A missed traverse step would shift every later layer, so reliability wins. Jogs and winding never drive the guide slower than ~0.47 mm/s, so all real motion is spreadCycle;
+    - **holding in stealthChop:** in spreadCycle the motor hummed steadily whenever it stood still with the driver on (after HOME, a jog or a run). At 200 mA hold the current scale is only 6 of 31, and the chopper is audible. In stealthChop it holds silently;
+    - **found in testing (2026-10-22):** full stealthChop (`TRAVERSE_STEALTHCHOP = true`) was silent at standstill but moved roughly and noisily. Hybrid is silent and smooth, and winding stayed exact: 300 turns at 1200 RPM, also with four STOP / RESUMEs, both pulse checks `OK`, max lag 1 step;
   - **400 mA RMS** (~67% of the 0.6 A rating: stays cool, plenty of force through a 1 mm screw), hold 50%;
   - configured and verified by readback like the spindle driver.
 - **Homing:** the slide has no endstop, so it gets the **3-wire mechanical endstop module** (on hand: the common 3D-printer type with VCC / GND / SIG, a pull-up resistor and an LED). Sensorless homing doesn't suit a 1 mm lead screw: the screw's mechanical advantage hides the stall from the motor and could jam the nut.

@@ -73,10 +73,17 @@ constexpr uint8_t  TRAVERSE_DRIVER_ADDR    = 1;
 constexpr float    TRAVERSE_R_SENSE        = 0.11f;
 constexpr uint16_t TRAVERSE_RMS_CURRENT_MA = 400; // motor rated 0.6 A/phase
 constexpr uint8_t  TRAVERSE_HOLD_PCT       = 50;
-// spreadCycle by default: the traverse reverses at full speed at every
+// spreadCycle while moving: the traverse reverses at full speed at every
 // layer end, and stealthChop's current regulation copes worse with sudden
-// speed changes. stealthChop is quieter; true to try it.
+// speed changes (moves were audibly rough in stealthChop on this build).
+// true = stealthChop at all speeds.
 constexpr bool     TRAVERSE_STEALTHCHOP    = false;
+// Hybrid: below this guide speed, standstill included, the driver switches
+// to stealthChop by itself (TPWMTHRS), so it holds silently instead of
+// humming in spreadCycle. Moves start at 0.5 mm/s and winding runs the guide
+// at >= 0.47 mm/s (44 AWG at 500 RPM), so only standstill and the first
+// steps of a ramp use stealthChop. 0 = spreadCycle at all speeds.
+constexpr uint32_t TRAVERSE_STEALTH_BELOW_UM_S = 200;
 
 // ---------------------------------------------------------------------------
 // Motor / mechanics

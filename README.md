@@ -67,7 +67,7 @@ Set over UART at boot and **verified by reading every value back**: the motor wi
 | Setting | Spindle | Guide |
 |---|---|---|
 | UART address | 0 | 1 |
-| Mode | **spreadCycle** | spreadCycle (`TRAVERSE_STEALTHCHOP` to change) |
+| Mode | **spreadCycle** | hybrid: spreadCycle moving, stealthChop below 0.2 mm/s (silent hold; `TRAVERSE_STEALTH_BELOW_UM_S`) |
 | Microsteps | 16, with 256× interpolation | 16 (3200 steps/mm) |
 | Run current | 1200 mA RMS default; `current N` changes it (saved) | 400 mA RMS |
 | Hold current | 25 %; switched off 2 min after a run ends (paused runs keep holding) | 50 % |

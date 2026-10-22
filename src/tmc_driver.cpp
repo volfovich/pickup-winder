@@ -30,9 +30,10 @@ namespace tmc
         }
     }
 
-    Driver spindle({"spindle", DRIVER_ADDR, R_SENSE, RMS_CURRENT_MA, SPINDLE_HOLD_PCT, MICROSTEPS, false});
+    Driver spindle({"spindle", DRIVER_ADDR, R_SENSE, RMS_CURRENT_MA, SPINDLE_HOLD_PCT, MICROSTEPS, false, 0});
     Driver traverse({"traverse", TRAVERSE_DRIVER_ADDR, TRAVERSE_R_SENSE, TRAVERSE_RMS_CURRENT_MA, TRAVERSE_HOLD_PCT,
-                     TRAVERSE_MICROSTEPS, TRAVERSE_STEALTHCHOP});
+                     TRAVERSE_MICROSTEPS, TRAVERSE_STEALTHCHOP,
+                     TRAVERSE_STEALTH_BELOW_UM_S * TRAVERSE_STEPS_PER_MM / 1000});
 
     Driver::Driver(const Config& c) : cfg(c), runMa(c.currentMa) {}
 
@@ -82,9 +83,16 @@ namespace tmc
 
         driver.begin();                  // pdn_disable(true), mstep_reg_select(true)
         driver.I_scale_analog(false);    // current from register, not VREF
-        driver.en_spreadCycle(!cfg.stealthChop);
-        driver.pwm_autoscale(cfg.stealthChop); // stealthChop tunes its own current regulation
-        driver.pwm_autograd(cfg.stealthChop);
+        bool stealth = cfg.usesStealthChop();
+        driver.en_spreadCycle(!stealth);
+        driver.pwm_autoscale(stealth); // stealthChop tunes its own current regulation
+        driver.pwm_autograd(stealth);
+        // Hybrid: stealthChop while TSTEP (12 MHz clocks per 1/256 microstep)
+        // is above TPWMTHRS, i.e. below the step rate; 0 = no switching
+        uint32_t tpwmthrs = 0;
+        if (!cfg.stealthChop && cfg.stealthBelowStepsPerS)
+            tpwmthrs = min<uint32_t>(12000000ul / (cfg.stealthBelowStepsPerS * (256 / cfg.microsteps)), 0xFFFFFu);
+        driver.TPWMTHRS(tpwmthrs); // write-only register: not verified below
 
         // Chopper: Trinamic's recommended spreadCycle starting point
         driver.toff(4);
@@ -106,7 +114,7 @@ namespace tmc
         bool ok            = true;
         ok &= check(cfg, !driver.CRCerror, "UART CRC error reading IFCNT");
         ok &= check(cfg, ifcntAfter != ifcntBefore, "IFCNT did not change (writes not received)");
-        ok &= check(cfg, driver.en_spreadCycle() == !cfg.stealthChop, "GCONF.en_spreadcycle wrong");
+        ok &= check(cfg, driver.en_spreadCycle() == !stealth, "GCONF.en_spreadcycle wrong");
         ok &= check(cfg, driver.pdn_disable(), "GCONF.pdn_disable != 1");
         ok &= check(cfg, driver.mstep_reg_select(), "GCONF.mstep_reg_select != 1");
         ok &= check(cfg, !driver.I_scale_analog(), "GCONF.I_scale_analog != 0");
@@ -119,7 +127,7 @@ namespace tmc
         configured = ok;
         Serial.printf("TMC2209 %s: %s (%s, %u microsteps, %u mA RMS)\n", cfg.name,
                       ok ? "configured and verified" : "CONFIGURATION FAILED — motion disabled",
-                      cfg.stealthChop ? "stealthChop" : "spreadCycle", cfg.microsteps, runMa);
+                      cfg.modeName(), cfg.microsteps, runMa);
         return ok;
     }
 

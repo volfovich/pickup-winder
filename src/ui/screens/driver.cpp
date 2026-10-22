@@ -83,8 +83,11 @@ namespace ui::screens
                  drv->ready() ? "configured" : "NOT CONFIGURED");
         drawLine(0, t, drv->ready() ? theme::OK : theme::WARN);
 
-        snprintf(t, sizeof(t), "%s, %u microsteps", s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps);
-        drawLine(1, t, s.spreadCycle == !drv->config().stealthChop ? theme::FG : theme::ERR); // red: not as configured
+        // Red: not as configured. Hybrid shows as such (GCONF alone reads stealthChop)
+        bool asSet = s.spreadCycle == !drv->config().usesStealthChop();
+        snprintf(t, sizeof(t), "%s, %u microsteps",
+                 asSet ? drv->config().modeName() : s.spreadCycle ? "spreadCycle" : "stealthChop", s.microsteps);
+        drawLine(1, t, asSet ? theme::FG : theme::ERR);
 
         snprintf(t, sizeof(t), "toff %u  hstrt %u  hend %u  tbl %u", s.toff, s.hstrt, s.hend, s.tblClocks);
         drawLine(2, t, theme::FG);

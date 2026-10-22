@@ -23,6 +23,6 @@
 - Home: the motor end = 0 mm
 - Endstop: the 3-wire mechanical module (on hand), powered from 3.3 V
 - Touch: HR2046 (XPT2046-compatible), T_IRQ / T_OUT / T_DIN / T_CS / T_CLK pins
-- Traverse motor current: 0.6 A/phase → run at 400 mA RMS, spreadCycle
+- Traverse motor current: 0.6 A/phase → run at 400 mA RMS, spreadCycle while moving, stealthChop at standstill (spreadCycle hummed while holding)
 - Screen: 2.8" ILI9341 + HR2046 touch, touch only, no hardware buttons
 - Spindle when not winding: low hold current while paused or just finished, released after 2 min idle

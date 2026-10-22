@@ -54,6 +54,15 @@ namespace tmc
         uint8_t holdPct;    // standstill current, % of the run current
         uint16_t microsteps;
         bool stealthChop;
+        // Hybrid (with stealthChop false): stealthChop below this step rate,
+        // standstill included, spreadCycle above. 0 = off.
+        uint32_t stealthBelowStepsPerS;
+
+        bool usesStealthChop() const { return stealthChop || stealthBelowStepsPerS; }
+        const char* modeName() const
+        {
+            return stealthChop ? "stealthChop" : stealthBelowStepsPerS ? "hybrid" : "spreadCycle";
+        }
     };
 
     // One TMC2209 on the shared single-wire UART (TMC_SERIAL).
@@ -99,5 +108,5 @@ namespace tmc
     };
 
     extern Driver spindle;  // address 0, spreadCycle
-    extern Driver traverse; // address 1
+    extern Driver traverse; // address 1, hybrid: stealthChop only at standstill / very low speed
 }
