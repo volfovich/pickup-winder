@@ -81,10 +81,12 @@ namespace ui::screens
         if (shownTrav.on)
         {
             app::Winding w = app::winding();
-            uint32_t tenths = (shownTrav.widthUm + 50) / 100;
-            snprintf(text, sizeof(text), "%u AWG%s, %lu.%lu mm, %lu layers%s", shownTrav.awg,
-                     shownTrav.heavy ? " H" : "", tenths / 10, tenths % 10, w.layers, shownTrav.scatter ? " S" : "");
+            // The font is fitted to the line with ", scatter", so the size
+            // stays the same when scatter is switched on or off
+            snprintf(text, sizeof(text), "%u AWG%s, %lu layers, scatter", shownTrav.awg, shownTrav.heavy ? " H" : "",
+                     w.layers);
             const ILI9341_t3_font_t& f = fitFont(text, theme::W - VALUE_X - 4, theme::FONT_VALUE);
+            if (!shownTrav.scatter) *strrchr(text, ',') = '\0';
             printAt(text, VALUE_X, 92 + (theme::FONT_VALUE.cap_height - f.cap_height), f, theme::FG);
         }
         else printAt("guide off - by hand", VALUE_X, 95, theme::FONT_BODY, theme::MUTED);

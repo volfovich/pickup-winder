@@ -124,7 +124,7 @@ Mockups are 320 × 240 landscape; `[ ... ]` is a button. Every screen has a **st
 +--------------------------------------------------+
 |  Turns      8,000               Dir  CW          |
 |  RPM        1200   (actual 1204.0)               |
-|  Bobbin     42 AWG, 12.0 mm, 22 layers           |
+|  Bobbin     42 AWG, 22 layers                    |
 |  +--------------------------------------------+  |
 |  |                  START                     |  |
 |  +--------------------------------------------+  |
@@ -132,7 +132,7 @@ Mockups are 320 × 240 landscape; `[ ... ]` is a button. Every screen has a **st
 +--------------------------------------------------+
 ```
 - The **title** is the loaded preset's name, with " *" once a setting differs from it ("Strat neck *"), else **IDLE**.
-- **Bobbin** shows what will be wound: AWG (" H" for heavy insulation), inner width and layers, or "guide off - by hand".
+- **Bobbin** shows what will be wound: AWG (" H" for heavy insulation) and layers (", scatter" with scatter), or "guide off - by hand". The inner width is on the Bobbin screen.
 - If START can't start, the reason shows in red above it for 5 s.
 - With the guide on, START first moves the guide to the start position: START turns into **CANCEL** and "moving the guide to the start position..." shows.
 - **GUIDE** turns orange as **HOME GUIDE!** while the guide is on but not homed (START would refuse).
@@ -256,7 +256,7 @@ Scatter winding, from **Bobbin → SCATTER**. Locked during a run. How it works:
 - **Scatter** toggles on tap. **Pitch +%** (0–100) and **Seed** (0–99999) open the keypad; **Ends mm** (0–3) opens it in mm with one decimal.
 - **NEW SEED** picks a random seed. The same seed winds the same pattern again.
 - The summary shows the fewest and most turns in a layer and the layers for the set turns, or in red why it won't fit (end scatter too large for the bobbin, too many layers, guide too slow for the RPM).
-- **BACK** returns to Bobbin. Idle's bobbin line ends in " S" while scatter is on.
+- **BACK** returns to Bobbin. Idle's bobbin line ends in ", scatter" while scatter is on.
 
 ### Presets
 Named sets of settings for different winds, from **Idle → PRESETS**. Locked during a run.
