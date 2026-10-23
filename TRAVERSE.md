@@ -122,6 +122,8 @@ Why this design:
 
 ### Scatter winding
 
+The full explanation (why, the algorithm step by step, a worked example, choosing values): [SCATTER.md](SCATTER.md).
+
 Even layers make a tightly packed coil. **Scatter winding** varies each layer, as hand-guided pickups have it: less self-capacitance, a brighter tone. Two kinds, each adjustable, both from a **seed**:
 - **Pitch scatter P %:** each layer gets its own pitch, at random from wire × 1.00 to wire × (1 + P/100). It never goes below the wire: the turns per layer round down.
 - **End scatter E mm:** each turnaround lands at random up to E inside the margin, on its side, so the layers end unevenly short of the flanges instead of piling up there.
